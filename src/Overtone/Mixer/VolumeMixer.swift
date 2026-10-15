@@ -7,8 +7,17 @@ import Observation
 final class VolumeMixer {
     private(set) var apps: [AudioApp] = []
     @ObservationIgnored private var timer: Timer?
+    /// Set by screenshot mode so live polling never replaces the demo apps.
+    @ObservationIgnored private var isFrozen = false
+
+    /// Screenshot support (`--snapshot`): shows fixed demo apps instead of live processes.
+    func showSnapshotApps(_ demo: [AudioApp]) {
+        apps = demo
+        isFrozen = true
+    }
 
     func refresh() {
+        guard !isFrozen else { return }
         let latest = AudioProcessCatalog.apps()
         if latest != apps { apps = latest }
     }

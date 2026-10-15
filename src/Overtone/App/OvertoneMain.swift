@@ -19,7 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: StatusItemController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if SnapshotRenderer.runIfRequested() {
+        if SnapshotRenderer.runIfRequested() || ArtworkRenderer.runIfRequested() {
             NSApp.terminate(nil)
             return
         }

@@ -74,6 +74,14 @@ final class AudioEngine {
         }
     }
 
+    /// Screenshot support (`--snapshot`): presents a running state without starting audio.
+    func showSnapshotState(device: AudioDevice, sampleRate: Double) {
+        outputDevice = device
+        devices = [device]
+        context.sampleRate = sampleRate
+        status = .running
+    }
+
     func retry() {
         guard isEnabled else { return }
         resetRetries()

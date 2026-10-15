@@ -116,7 +116,7 @@ private struct AboutTab: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            AppGlyph(size: 64)
+            AppIconArtwork(size: 88)
             Text("Overtone").font(.title2.weight(.semibold))
             Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev")")
                 .foregroundStyle(.secondary)

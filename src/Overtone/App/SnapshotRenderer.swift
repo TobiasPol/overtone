@@ -22,8 +22,9 @@ enum SnapshotRenderer {
             id: 0, uid: "demo", name: "MacBook Pro Speakers",
             transportType: kAudioDeviceTransportTypeBuiltIn, outputChannels: 2
         )
-        controller.engine.devices = [demo]
-        controller.engine.outputDevice = demo
+        controller.engine.showSnapshotState(device: demo, sampleRate: 48_000)
+        controller.mixer.showSnapshotApps(demoApps)
+        controller.analyzer.showSnapshotLevels(demoSpectrum, meter: 0.78)
         seedDemoState(controller.state)
         for section in AppSection.allCases {
             controller.state.general.selectedSection = section
@@ -43,7 +44,47 @@ enum SnapshotRenderer {
             .background(Color(nsColor: .windowBackgroundColor))
     }
 
+    private static let demoApps = [
+        AudioApp(
+            id: "com.apple.Music",
+            name: "Music",
+            bundleID: "com.apple.Music",
+            pid: 0,
+            processObjectIDs: [],
+            isPlaying: true
+        ),
+        AudioApp(
+            id: "com.apple.Safari",
+            name: "Safari",
+            bundleID: "com.apple.Safari",
+            pid: 0,
+            processObjectIDs: [],
+            isPlaying: true
+        ),
+        AudioApp(
+            id: "com.apple.FaceTime",
+            name: "FaceTime",
+            bundleID: "com.apple.FaceTime",
+            pid: 0,
+            processObjectIDs: [],
+            isPlaying: false
+        ),
+    ]
+
+    /// A smooth, music-like spectrum (bass-heavy, gently falling) for the analyzer.
+    private static var demoSpectrum: [Float] {
+        (0..<SpectrumAnalyzer.barCount).map { index in
+            let x = Float(index) / Float(SpectrumAnalyzer.barCount)
+            let bass = 0.18 * exp(-pow((x - 0.18) / 0.1, 2))
+            return max(0.05, 0.62 - 0.3 * x + bass + 0.05 * sin(Float(index) * 1.9) + 0.03 * sin(Float(index) * 4.3))
+        }
+    }
+
     private static func seedDemoState(_ state: AppState) {
+        state.mixer.apps = [
+            "com.apple.Music": AppVolume(volume: 0.8, isMuted: false),
+            "com.apple.FaceTime": AppVolume(volume: 1, isMuted: true),
+        ]
         BuiltInPresets.advanced.first { $0.name == "Rock" }?.apply(to: &state.equalizer)
         state.equalizer.basic = BasicEQ(bass: 4, mid: -1.5, treble: 3)
         state.equalizer.expert = BuiltInPresets.expert.first { $0.name == "Vocal Presence" }?.expert ?? ExpertEQ()

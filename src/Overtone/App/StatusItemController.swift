@@ -80,13 +80,11 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private func updateIcon() {
         guard let button = statusItem.button else { return }
         let enabled = controller.state.isEnabled
-        let symbol: String = switch controller.engine.status {
-        case .failed, .permissionDenied: enabled ? "exclamationmark.triangle" : "slider.vertical.3"
-        default: "slider.vertical.3"
+        let attention: Bool = switch controller.engine.status {
+        case .failed, .permissionDenied: enabled
+        default: false
         }
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Overtone")
-        image?.isTemplate = true
-        button.image = image
+        button.image = StatusIcon.image(attention: attention)
         button.appearsDisabled = !enabled
     }
 

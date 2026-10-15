@@ -102,22 +102,14 @@ struct StatusBanner: View {
     }
 }
 
+/// The bare Overtone mark in the text colour (black in light mode, white in dark mode).
 struct AppGlyph: View {
     var active = true
-    var size: CGFloat = 28
+    var size: CGFloat = 26
 
     var body: some View {
-        RoundedRectangle(cornerRadius: size * 0.27, style: .continuous)
-            .fill(LinearGradient(
-                colors: active ? [Color(red: 0.36, green: 0.42, blue: 1), Color(red: 0.75, green: 0.32, blue: 0.95)]
-                    : [.gray.opacity(0.6), .gray.opacity(0.4)],
-                startPoint: .topLeading, endPoint: .bottomTrailing
-            ))
-            .overlay(
-                Image(systemName: "slider.vertical.3")
-                    .font(.system(size: size * 0.5, weight: .semibold))
-                    .foregroundStyle(.white)
-            )
+        LogoMark(weight: 0.1)
+            .fill(active ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
             .frame(width: size, height: size)
     }
 }

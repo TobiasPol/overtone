@@ -39,6 +39,12 @@ final class SpectrumAnalyzer {
         buildBands()
     }
 
+    /// Screenshot support (`--snapshot`): displays a fixed spectrum and meter level.
+    func showSnapshotLevels(_ demo: [Float], meter: Float) {
+        levels = demo
+        meters = (meter, meter * 0.94)
+    }
+
     func setRunning(_ running: Bool) {
         guard running != (timer != nil) else { return }
         timer?.invalidate()
