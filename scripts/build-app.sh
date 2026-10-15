@@ -5,16 +5,13 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-# Values already set in the environment win over .env (e.g. CODESIGN_IDENTITY=... scripts/build-app.sh).
-preset_identity="${CODESIGN_IDENTITY:-}"
+# Variables already set in the environment win over .env
+# (e.g. CODESIGN_IDENTITY=... or VERSION=1.2.0 scripts/build-app.sh).
 if [[ -f .env ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source .env
-  set +a
-fi
-if [[ -n "$preset_identity" ]]; then
-  CODESIGN_IDENTITY="$preset_identity"
+  while IFS='=' read -r key value; do
+    [[ -z "$key" || "$key" == \#* ]] && continue
+    if [[ -z "${!key:-}" ]]; then export "$key=$value"; fi
+  done < .env
 fi
 
 CONFIG="${1:-release}"

@@ -58,12 +58,40 @@
 
 ## Install
 
-### Requirements
+Overtone needs **macOS 14.4 Sonoma or later** and runs natively on Apple Silicon and Intel Macs.
 
-- macOS 14.4 Sonoma or later, on Apple Silicon or Intel
-- [Xcode](https://apps.apple.com/app/xcode/id497799835) 16 or later, to build the app
+### With Homebrew (recommended)
 
-### Build and install
+```bash
+brew install --cask tobiaspol/tap/overtone
+```
+
+This adds the [tap](https://github.com/TobiasPol/homebrew-tap), downloads the latest release
+and puts `Overtone.app` into your Applications folder. Then open Overtone from Applications or
+Spotlight.
+
+> **First launch:** releases aren't notarized by Apple yet, so macOS blocks the very first
+> launch with a warning that it can't verify the app. Open **System Settings → Privacy &
+> Security**, scroll down and click **Open Anyway** (you only do this once per version).
+> If you prefer the terminal: `xattr -dr com.apple.quarantine /Applications/Overtone.app`
+
+Keep it up to date, or remove it:
+
+```bash
+brew upgrade --cask overtone           # update to the newest release
+brew uninstall --cask overtone         # remove the app
+brew uninstall --zap --cask overtone   # remove the app and its settings
+```
+
+### Download manually
+
+Download `Overtone-<version>.zip` from the
+[latest release](https://github.com/TobiasPol/overtone/releases/latest), unzip it, move
+`Overtone.app` to Applications, and allow it once as described above.
+
+### Build from source
+
+You need [Xcode](https://apps.apple.com/app/xcode/id497799835) 16 or later.
 
 ```bash
 git clone https://github.com/TobiasPol/overtone.git
@@ -78,7 +106,7 @@ ditto build/Overtone.app /Applications/Overtone.app
 open /Applications/Overtone.app
 ```
 
-### Optional: sign with your developer certificate
+#### Optional: sign with your developer certificate
 
 By default the app is signed ad hoc, which is fine for your own Mac. But each rebuild then looks
 like a new app to macOS, and it asks for the audio permission again. If you have an Apple
@@ -256,6 +284,11 @@ Open them from the gear menu, or right-click the menu bar icon.
 
 ## Uninstall
 
+Installed with Homebrew? `brew uninstall --zap --cask overtone` removes the app and its settings.
+Afterwards, reset the audio permission with the `tccutil` line below.
+
+Otherwise:
+
 1. Turn off **Open Overtone at login** in Settings, if you enabled it.
 2. Quit Overtone (right-click the icon → **Quit Overtone**).
 3. Remove the app, its settings, and the audio permission:
@@ -278,7 +311,11 @@ Overtone installs nothing else: no driver, no launch daemon, no kernel extension
   the usual cause. Your sound keeps playing normally, without effects. Choose another output, or
   click **Retry**.
 
-**macOS asks for permission again after every build.** That happens with ad hoc signing. Sign
+**macOS says it can't verify Overtone, or that it's damaged.** Releases aren't notarized yet.
+Allow it once under **System Settings → Privacy & Security → Open Anyway**, or run
+`xattr -dr com.apple.quarantine /Applications/Overtone.app`.
+
+**macOS asks for permission again after every build or update.** That happens with ad hoc signing. Sign
 with your developer certificate (see [Install](#optional-sign-with-your-developer-certificate)).
 
 **Sound distorts when I boost.** Turn on the **Limiter** (Effects tab), lower the preamp, or
@@ -322,10 +359,32 @@ scripts/check.sh             # all quality gates: warning-free build, tests, siz
 scripts/run.sh               # build a debug app bundle and launch it
 scripts/install-hooks.sh     # run the quality gates before every commit
 scripts/make-artwork.sh      # regenerate the app icon and README images from the logo source
+scripts/package-release.sh 1.1.0   # universal release zip + SHA-256 in build/
 .build/debug/Overtone --snapshot docs/screenshots   # re-render the README screenshots
 ```
 
-`scripts/build-app.sh` reads these optional settings from `.env` (see `.env.example`):
+### Releasing
+
+1. Push a version tag:
+
+   ```bash
+   git tag v1.1.0 && git push origin v1.1.0
+   ```
+
+2. The **Release** workflow tests the code, builds a universal app
+   (`scripts/package-release.sh`) and publishes a GitHub release with the zip and its SHA-256.
+3. If the repository has a `TAP_GITHUB_TOKEN` secret (a fine-grained token with *Contents:
+   read and write* on `TobiasPol/homebrew-tap`), the workflow also updates the cask. Without
+   it, update the cask by hand:
+
+   ```bash
+   scripts/update-cask.sh 1.1.0 "$(curl -sL https://github.com/TobiasPol/overtone/releases/download/v1.1.0/Overtone-1.1.0.zip.sha256)" ../homebrew-tap
+   ```
+
+### Build settings
+
+`scripts/build-app.sh` reads these optional settings from `.env` (see `.env.example`).
+Variables already set in your environment take precedence:
 
 | Variable | Purpose |
 | --- | --- |
