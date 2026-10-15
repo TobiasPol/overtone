@@ -1,0 +1,22 @@
+# Mirrors .gitignore (no Docker image is built today; kept for consistency).
+.git/
+.env
+.env.*
+!.env.example
+node_modules/
+vendor/
+__pycache__/
+.venv/
+dist/
+build/
+.build/
+.swiftpm/
+DerivedData/
+*.iconset/
+.claude/settings.local.json
+CLAUDE.local.md
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

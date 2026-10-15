@@ -1,0 +1,12 @@
+--swiftversion 6.0
+--indent 4
+--maxwidth 130
+--ranges no-space
+--decimalgrouping 3,4
+--wraparguments before-first
+--wrapcollections before-first
+--self remove
+--selfrequired info,notice,debug,error,warning,log,fault
+--stripunusedargs closure-only
+--disable redundantReturn,wrapIfStatementBodies,wrapPropertyBodies,wrapFunctionBodies,andOperator,blankLinesBetweenScopes,noForceUnwrapInTests,wrapMultilineStatementBraces
+--exclude .build,build
