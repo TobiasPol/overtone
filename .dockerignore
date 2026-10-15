@@ -1,6 +1,10 @@
 # Mirrors .gitignore (no Docker image is built today; kept for consistency).
 .git/
 .env
+*.p12
+*.p8
+*.cer
+*.mobileprovision
 .env.*
 !.env.example
 node_modules/

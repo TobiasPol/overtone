@@ -4,6 +4,12 @@
 .env.local
 !.env.example
 
+# Signing and notarization credentials (never commit)
+*.p12
+*.p8
+*.cer
+*.mobileprovision
+
 # Dependencies
 node_modules/
 vendor/
