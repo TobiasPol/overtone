@@ -7,12 +7,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 # Variables already set in the environment win over .env
 # (e.g. CODESIGN_IDENTITY=... or VERSION=1.2.0 scripts/build-app.sh).
-if [[ -f .env ]]; then
-  while IFS='=' read -r key value; do
-    [[ -z "$key" || "$key" == \#* ]] && continue
-    if [[ -z "${!key:-}" ]]; then export "$key=$value"; fi
-  done < .env
-fi
+# shellcheck source=lib/env.sh
+source scripts/lib/env.sh
 
 CONFIG="${1:-release}"
 APP_NAME="Overtone"

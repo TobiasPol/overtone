@@ -1,11 +1,23 @@
 #!/usr/bin/env bash
 # Writes the Homebrew cask for a released version into a tap checkout.
 # Usage: scripts/update-cask.sh <version> <sha256> <path-to-homebrew-tap>
+# Set NOTARIZED=1 when the release is notarized (drops the Gatekeeper workaround from the caveats).
 set -euo pipefail
 VERSION="${1:?usage: scripts/update-cask.sh <version> <sha256> <tap-dir>}"
 SHA256="${2:?missing sha256}"
 TAP="${3:?missing tap directory}"
 REPO="${OVERTONE_REPO:-TobiasPol/overtone}"
+
+if [[ "${NOTARIZED:-0}" == "1" ]]; then
+  GATEKEEPER_NOTE=""
+else
+  GATEKEEPER_NOTE='
+
+    Releases are not notarized yet, so macOS blocks the very first launch.
+    Open System Settings → Privacy & Security and click "Open Anyway",
+    or clear the download quarantine yourself:
+      xattr -dr com.apple.quarantine "#{appdir}/Overtone.app"'
+fi
 
 mkdir -p "$TAP/Casks"
 cat > "$TAP/Casks/overtone.rb" <<CASK
@@ -33,12 +45,7 @@ cask "overtone" do
 
   caveats <<~EOS
     Overtone lives in the menu bar (no Dock icon). On first launch, allow
-    "System Audio Recording" when macOS asks.
-
-    Releases are not notarized yet, so macOS blocks the very first launch.
-    Open System Settings → Privacy & Security and click "Open Anyway",
-    or clear the download quarantine yourself:
-      xattr -dr com.apple.quarantine "#{appdir}/Overtone.app"
+    "System Audio Recording" when macOS asks.$GATEKEEPER_NOTE
   EOS
 end
 CASK

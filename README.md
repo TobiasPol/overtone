@@ -360,6 +360,7 @@ scripts/run.sh               # build a debug app bundle and launch it
 scripts/install-hooks.sh     # run the quality gates before every commit
 scripts/make-artwork.sh      # regenerate the app icon and README images from the logo source
 scripts/package-release.sh 1.1.0   # universal release zip + SHA-256 in build/
+build/Overtone.app/Contents/MacOS/Overtone --check-plugins   # host every installed AU effect
 .build/debug/Overtone --snapshot docs/screenshots   # re-render the README screenshots
 ```
 
@@ -381,6 +382,37 @@ scripts/package-release.sh 1.1.0   # universal release zip + SHA-256 in build/
    scripts/update-cask.sh 1.1.0 "$(curl -sL https://github.com/TobiasPol/overtone/releases/download/v1.1.0/Overtone-1.1.0.zip.sha256)" ../homebrew-tap
    ```
 
+### Notarized releases
+
+With a [Developer ID](https://developer.apple.com/developer-id/) certificate and an App Store
+Connect API key stored as repository secrets, the Release workflow signs with the hardened
+runtime, notarizes the app with Apple, staples the ticket, and marks the cask as notarized.
+Users then get no Gatekeeper warning. Without the secrets, releases stay ad hoc signed.
+
+| Secret | Value |
+| --- | --- |
+| `DEVELOPER_ID_P12_BASE64` | Your *Developer ID Application* certificate and private key, exported as `.p12`, base64-encoded |
+| `DEVELOPER_ID_P12_PASSWORD` | The `.p12` export password |
+| `NOTARY_KEY_BASE64` | App Store Connect API key (`AuthKey_XXXX.p8`), base64-encoded |
+| `NOTARY_KEY_ID` | The API key's ID |
+| `NOTARY_ISSUER_ID` | Your App Store Connect issuer ID |
+
+Set them from the terminal so the values never appear on screen or in your shell history
+(`gh secret set` without `--body` reads from stdin or prompts):
+
+```bash
+base64 -i DeveloperID.p12 | gh secret set DEVELOPER_ID_P12_BASE64 --repo TobiasPol/overtone
+gh secret set DEVELOPER_ID_P12_PASSWORD --repo TobiasPol/overtone
+base64 -i AuthKey_XXXX.p8 | gh secret set NOTARY_KEY_BASE64 --repo TobiasPol/overtone
+gh secret set NOTARY_KEY_ID --repo TobiasPol/overtone
+gh secret set NOTARY_ISSUER_ID --repo TobiasPol/overtone
+```
+
+To notarize a local build instead, save the API key once with
+`xcrun notarytool store-credentials overtone-notary --key AuthKey_XXXX.p8 --key-id <id> --issuer <issuer>`,
+then set `CODESIGN_IDENTITY` (your Developer ID) and `NOTARY_KEYCHAIN_PROFILE=overtone-notary` in
+`.env` and run `scripts/package-release.sh <version>`.
+
 ### Build settings
 
 `scripts/build-app.sh` reads these optional settings from `.env` (see `.env.example`).
@@ -392,6 +424,7 @@ Variables already set in your environment take precedence:
 | `BUNDLE_ID` | Bundle identifier of the built app |
 | `VERSION` | Version shown in About |
 | `UNIVERSAL` | `1` builds a universal arm64 + x86_64 app |
+| `NOTARY_KEYCHAIN_PROFILE` | notarytool profile for local notarization (optional) |
 
 ```
 src/OvertoneDSP/   real-time C engine: IO proc, EQ, effects, limiter, plugin chain

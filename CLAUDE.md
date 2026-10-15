@@ -20,6 +20,8 @@ and plays it on the real output device through a private aggregate device.
 - `scripts/package-release.sh <version>` — Universal release zip + SHA-256 (used by the Release workflow)
 - `scripts/update-cask.sh <version> <sha256> <tap-dir>` — Write the Homebrew cask into a homebrew-tap checkout
 - `scripts/make-artwork.sh` — Regenerate the app icon and README images from `LogoMark`
+- `scripts/notarize.sh <app> <zip>` — Notarize + staple (called by package-release.sh when credentials exist)
+- `build/Overtone.app/Contents/MacOS/Overtone --check-plugins` — Host every installed AU effect and render a test tone
 - `swift test` — Run tests
 - `scripts/check.sh` — All quality gates (warnings-as-errors build, tests, size limits, secret scan)
 - `swiftformat --lint src tests` — Check code style
@@ -40,7 +42,10 @@ and plays it on the real output device through a private aggregate device.
 
 ## Environment Variables
 Build-time only (`.env`, see `.env.example`): `CODESIGN_IDENTITY`, `BUNDLE_ID`, `VERSION`, `UNIVERSAL`.
-CI secret (optional): `TAP_GITHUB_TOKEN` lets the Release workflow update `TobiasPol/homebrew-tap`.
+Optional: `NOTARY_KEYCHAIN_PROFILE` (local notarization via a saved notarytool profile).
+CI secrets (optional, names only, never commit values): `DEVELOPER_ID_P12_BASE64`, `DEVELOPER_ID_P12_PASSWORD`
+(Developer ID signing), `NOTARY_KEY_BASE64`, `NOTARY_KEY_ID`, `NOTARY_ISSUER_ID` (notarization),
+`TAP_GITHUB_TOKEN` (lets the Release workflow update `TobiasPol/homebrew-tap`).
 
 ## Conventions
 - No file over 300 lines, no function over 50 lines (`scripts/check.sh` enforces the file limit).
