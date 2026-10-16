@@ -68,12 +68,8 @@ brew install --cask tobiaspol/tap/overtone
 
 This adds the [tap](https://github.com/TobiasPol/homebrew-tap), downloads the latest release
 and puts `Overtone.app` into your Applications folder. Then open Overtone from Applications or
-Spotlight.
-
-> **First launch:** releases aren't notarized by Apple yet, so macOS blocks the very first
-> launch with a warning that it can't verify the app. Open **System Settings → Privacy &
-> Security**, scroll down and click **Open Anyway** (you only do this once per version).
-> If you prefer the terminal: `xattr -dr com.apple.quarantine /Applications/Overtone.app`
+Spotlight. Releases are signed with a Developer ID and notarized by Apple, so it opens like any
+other app.
 
 Keep it up to date, or remove it:
 
@@ -87,7 +83,7 @@ brew uninstall --zap --cask overtone   # remove the app and its settings
 
 Download `Overtone-<version>.zip` from the
 [latest release](https://github.com/TobiasPol/overtone/releases/latest), unzip it, move
-`Overtone.app` to Applications, and allow it once as described above.
+`Overtone.app` to Applications, and open it.
 
 ### Build from source
 
@@ -311,9 +307,10 @@ Overtone installs nothing else: no driver, no launch daemon, no kernel extension
   the usual cause. Your sound keeps playing normally, without effects. Choose another output, or
   click **Retry**.
 
-**macOS says it can't verify Overtone, or that it's damaged.** Releases aren't notarized yet.
-Allow it once under **System Settings → Privacy & Security → Open Anyway**, or run
-`xattr -dr com.apple.quarantine /Applications/Overtone.app`.
+**macOS says it can't verify Overtone.** Releases from v1.0.1 on are notarized. If you
+installed v1.0.0 (or a build of your own that isn't notarized), update with
+`brew upgrade --cask overtone`, or allow it once under **System Settings → Privacy & Security →
+Open Anyway**.
 
 **macOS asks for permission again after every build or update.** That happens with ad hoc signing. Sign
 with your developer certificate (see [Install](#optional-sign-with-your-developer-certificate)).
