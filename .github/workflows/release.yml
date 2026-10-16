@@ -2,7 +2,8 @@ name: Release
 
 # Push a tag like v1.2.0 to build, publish a GitHub release and update the Homebrew cask.
 # Optional secrets: DEVELOPER_ID_P12_BASE64, DEVELOPER_ID_P12_PASSWORD (Developer ID signing),
-# NOTARY_KEY_BASE64, NOTARY_KEY_ID, NOTARY_ISSUER_ID (notarization), TAP_GITHUB_TOKEN (cask update).
+# NOTARY_KEY_BASE64, NOTARY_KEY_ID, NOTARY_ISSUER_ID (notarization), TAP_DEPLOY_KEY (cask update).
+# scripts/setup-release-signing.sh creates all of them.
 # Without them the release is ad-hoc signed and the cask must be updated by hand.
 on:
   push:
@@ -44,15 +45,19 @@ jobs:
             --title "Overtone $version" --generate-notes
       - name: Update Homebrew tap
         env:
-          # Fine-grained token with Contents: read/write on TobiasPol/homebrew-tap.
-          TAP_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          # Private half of a write deploy key on TobiasPol/homebrew-tap (scripts/setup-release-signing.sh).
+          TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
         run: |
-          if [ -z "$TAP_TOKEN" ]; then
-            echo "TAP_GITHUB_TOKEN is not set; update the cask manually with scripts/update-cask.sh"
+          if [ -z "$TAP_DEPLOY_KEY" ]; then
+            echo "TAP_DEPLOY_KEY is not set; update the cask manually with scripts/update-cask.sh"
             exit 0
           fi
           version="${GITHUB_REF_NAME#v}"
-          git clone "https://x-access-token:${TAP_TOKEN}@github.com/TobiasPol/homebrew-tap.git" tap
+          key="$RUNNER_TEMP/tap_deploy_key"
+          printf '%s\n' "$TAP_DEPLOY_KEY" > "$key"
+          chmod 600 "$key"
+          export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          git clone git@github.com:TobiasPol/homebrew-tap.git tap
           notarized=0
           if xcrun stapler validate -q build/Overtone.app; then notarized=1; fi
           NOTARIZED=$notarized scripts/update-cask.sh "$version" "$(cat "build/Overtone-$version.zip.sha256")" tap
@@ -62,3 +67,4 @@ jobs:
           git add Casks/overtone.rb
           git commit -m "overtone $version"
           git push
+          rm -f "$key"

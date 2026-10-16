@@ -45,7 +45,8 @@ Build-time only (`.env`, see `.env.example`): `CODESIGN_IDENTITY`, `BUNDLE_ID`, 
 Optional: `NOTARY_KEYCHAIN_PROFILE` (local notarization via a saved notarytool profile).
 CI secrets (optional, names only, never commit values): `DEVELOPER_ID_P12_BASE64`, `DEVELOPER_ID_P12_PASSWORD`
 (Developer ID signing), `NOTARY_KEY_BASE64`, `NOTARY_KEY_ID`, `NOTARY_ISSUER_ID` (notarization),
-`TAP_GITHUB_TOKEN` (lets the Release workflow update `TobiasPol/homebrew-tap`).
+`TAP_DEPLOY_KEY` (write deploy key that lets the Release workflow update `TobiasPol/homebrew-tap`).
+All are created by `scripts/setup-release-signing.sh` (run by a human; it never prints values).
 
 ## Conventions
 - No file over 300 lines, no function over 50 lines (`scripts/check.sh` enforces the file limit).
