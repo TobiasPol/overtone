@@ -81,9 +81,15 @@ struct ClassificationWindow: Sendable {
 
 /// Averages classifier windows over a sliding span so one odd window can't flip the result.
 struct MusicTypeVoter {
-    var span: TimeInterval = 15
-    var minimumWindows = 4
+    var span: TimeInterval
+    var minimumWindows: Int
     private(set) var windows: [ClassificationWindow] = []
+
+    /// Explicit, because `private(set)` makes the memberwise initializer fileprivate before Swift 6.4.
+    init(span: TimeInterval = 15, minimumWindows: Int = 4) {
+        self.span = span
+        self.minimumWindows = minimumWindows
+    }
 
     mutating func add(_ window: ClassificationWindow) {
         guard window.hasContent else { return }

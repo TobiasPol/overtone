@@ -9,10 +9,10 @@ import Foundation
 /// kept an acceptable preset 84% of the time with 40 switches, against 77% and 44 switches when
 /// every decision after the first needed `forceTime` and the fallback could override any style.
 struct DetectionStabilizer<Value: Equatable> {
-    var holdTime: TimeInterval = 6
-    var forceTime: TimeInterval = 45
+    var holdTime: TimeInterval
+    var forceTime: TimeInterval
     /// How long after a gap decisions only need `holdTime`.
-    var gapWindow: TimeInterval = 45
+    var gapWindow: TimeInterval
     /// "No clear answer": it may replace the previous track's value (the first switch after a gap,
     /// or the first decision ever) but never a decision already made for the current track, so a
     /// quiet passage can't knock out a style the track clearly had.
@@ -22,6 +22,14 @@ struct DetectionStabilizer<Value: Equatable> {
     private var candidateSince: TimeInterval = 0
     private var lastGap: TimeInterval?
     private var decidedSinceGap = false
+
+    /// Explicit, because the private state makes the memberwise initializer fileprivate before Swift 6.4.
+    init(holdTime: TimeInterval = 6, forceTime: TimeInterval = 45, gapWindow: TimeInterval = 45, fallback: Value? = nil) {
+        self.holdTime = holdTime
+        self.forceTime = forceTime
+        self.gapWindow = gapWindow
+        self.fallback = fallback
+    }
 
     mutating func noteGap(at time: TimeInterval) {
         lastGap = time
@@ -55,10 +63,15 @@ struct DetectionStabilizer<Value: Equatable> {
 
 /// Reports a gap once the audio has stayed below `thresholdDB` for `minimumGap` seconds.
 struct SilenceGate {
-    var thresholdDB: Float = -55
-    var minimumGap: TimeInterval = 0.8
+    var thresholdDB: Float
+    var minimumGap: TimeInterval
     private var silentFor: TimeInterval = 0
     private var reported = false
+
+    init(thresholdDB: Float = -55, minimumGap: TimeInterval = 0.8) {
+        self.thresholdDB = thresholdDB
+        self.minimumGap = minimumGap
+    }
 
     /// Feeds one block's RMS level (linear); returns true exactly once per gap.
     mutating func feed(rms: Float, duration: TimeInterval) -> Bool {
