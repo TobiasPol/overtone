@@ -51,7 +51,8 @@ final class MusicTypeDetector {
 
     init(dsp: DSPCore) {
         classifier = SoundClassifier(dsp: dsp) { [weak self] event in
-            DispatchQueue.main.async { MainActor.assumeIsolated { self?.handle(event) } }
+            let detector = self // a constant, so the main-queue closure doesn't capture the weak var
+            DispatchQueue.main.async { MainActor.assumeIsolated { detector?.handle(event) } }
         }
         music.onChange = { [weak self] _ in
             self?.lastSourceCheck = -.infinity

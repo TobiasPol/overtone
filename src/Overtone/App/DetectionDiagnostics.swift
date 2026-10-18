@@ -76,14 +76,27 @@ enum DetectionDiagnostics {
               (try? file.read(into: input)) != nil else { return nil }
         let capacity = AVAudioFrameCount(Double(input.frameLength) * sampleRate / file.processingFormat.sampleRate) + 1_024
         guard let buffer = AVAudioPCMBuffer(pcmFormat: output, frameCapacity: capacity) else { return nil }
-        var consumed = false
-        let status = converter.convert(to: buffer, error: nil) { _, outStatus in
-            outStatus.pointee = consumed ? .endOfStream : .haveData
-            defer { consumed = true }
-            return consumed ? nil : input
-        }
+        let source = OneShotInput(input)
+        let status = converter.convert(to: buffer, error: nil) { _, outStatus in source.next(outStatus) }
         guard status != .error, let data = buffer.floatChannelData?[0] else { return nil }
         return Array(UnsafeBufferPointer(start: data, count: Int(buffer.frameLength)))
+    }
+
+    /// Hands the decoded file to the converter once, then reports the end of the stream. The SDK
+    /// marks the input block `@Sendable`, but `convert(to:error:withInputFrom:)` calls it
+    /// synchronously, so the unchecked conformance is safe.
+    private final class OneShotInput: @unchecked Sendable {
+        private var buffer: AVAudioPCMBuffer?
+
+        init(_ buffer: AVAudioPCMBuffer) {
+            self.buffer = buffer
+        }
+
+        func next(_ status: UnsafeMutablePointer<AVAudioConverterInputStatus>) -> AVAudioBuffer? {
+            defer { buffer = nil }
+            status.pointee = buffer == nil ? .endOfStream : .haveData
+            return buffer
+        }
     }
 
     private final class PlaybackClock {
