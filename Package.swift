@@ -27,6 +27,7 @@ let package = Package(
                 .linkedFramework("Accelerate"),
                 .linkedFramework("CoreAudioKit"),
                 .linkedFramework("ServiceManagement"),
+                .linkedFramework("SoundAnalysis"),
             ]
         ),
         .testTarget(

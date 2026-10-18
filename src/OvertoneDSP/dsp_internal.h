@@ -85,6 +85,8 @@ struct ot_dsp {
     ot_reverb reverb;
     ot_limiter limiter;
     ot_ring analyzer;
+    ot_ring detector;
+    uint32_t detector_cursor; /* consumer side only */
     _Atomic(ot_plugin_chain *) chain;
     _Atomic(ot_plugin_chain *) chain_in_use;
     ot_plugin_input plugin_input;
@@ -122,6 +124,7 @@ void ot_limiter_process(ot_limiter *l, const ot_params *p, float fs, float *left
 /* analyzer.c */
 void ot_ring_write(ot_ring *ring, const float *l, const float *r, uint32_t n);
 uint32_t ot_ring_read(ot_ring *ring, float *dst, uint32_t count);
+uint32_t ot_ring_drain(ot_ring *ring, uint32_t *cursor, float *dst, uint32_t max);
 
 /* plugins.c */
 void ot_plugins_process(struct ot_dsp *dsp, float *l, float *r, uint32_t n);

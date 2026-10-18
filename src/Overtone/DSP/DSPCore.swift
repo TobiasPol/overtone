@@ -35,6 +35,14 @@ final class DSPCore: @unchecked Sendable {
         }
     }
 
+    /// Pre-EQ mono samples written since the previous call. Call from one thread only.
+    func drainDetector(into buffer: inout [Float]) -> Int {
+        let count = UInt32(buffer.count)
+        return buffer.withUnsafeMutableBufferPointer {
+            Int(ot_dsp_drain_detector(handle, $0.baseAddress, count))
+        }
+    }
+
     func readPeaks() -> (left: Float, right: Float) {
         var left: Float = 0, right: Float = 0
         ot_dsp_read_peaks(handle, &left, &right)

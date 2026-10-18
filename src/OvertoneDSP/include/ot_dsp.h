@@ -26,6 +26,10 @@ AudioDeviceIOProc ot_io_proc_ptr(void);
 /* Copies the newest `count` analyzer samples (mono, post-effects) into `dst`. */
 uint32_t ot_dsp_read_analyzer(ot_dsp *dsp, float *dst, uint32_t count);
 
+/* Copies up to `max` detector samples (mono, before preamp/EQ) written since the previous
+   call. Single consumer thread only; returns 0 while `detector_enabled` is off. */
+uint32_t ot_dsp_drain_detector(ot_dsp *dsp, float *dst, uint32_t max);
+
 /* Peak output levels since the previous call (linear), reset on read. */
 void ot_dsp_read_peaks(ot_dsp *dsp, float *left, float *right);
 

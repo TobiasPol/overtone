@@ -53,6 +53,7 @@ typedef struct {
     uint32_t out_right;
 
     uint32_t analyzer_enabled;
+    uint32_t detector_enabled; /* pre-EQ feed for music type detection */
 } ot_params;
 
 /* Fills a neutral (pass-through) configuration with a single unity tap. */

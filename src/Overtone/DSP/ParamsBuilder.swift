@@ -10,6 +10,7 @@ struct DSPSettings {
     /// Linear gain per tap key; missing keys play at unity.
     var tapGains: [String: Double] = [:]
     var analyzerEnabled = false
+    var detectorEnabled = false
 }
 
 /// Translates user settings into the flat C parameter snapshot.
@@ -27,6 +28,7 @@ enum ParamsBuilder {
         applyOutput(s.output, context: context, to: &p)
         applyTaps(s.tapGains, keys: context.tapKeys, to: &p)
         p.analyzer_enabled = s.analyzerEnabled ? 1 : 0
+        p.detector_enabled = s.detectorEnabled ? 1 : 0
         return p
     }
 

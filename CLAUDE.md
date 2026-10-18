@@ -22,6 +22,7 @@ and plays it on the real output device through a private aggregate device.
 - `scripts/make-artwork.sh` — Regenerate the app icon and README images from `LogoMark`
 - `scripts/notarize.sh <app> <zip>` — Notarize + staple (called by package-release.sh when credentials exist)
 - `build/Overtone.app/Contents/MacOS/Overtone --check-plugins` — Host every installed AU effect and render a test tone
+- `.build/debug/Overtone --detect [--speed N] <audio files…>` — Play files as a playlist through the music type detector and print each auto preset switch
 - `swift test` — Run tests
 - `scripts/check.sh` — All quality gates (warnings-as-errors build, tests, size limits, secret scan)
 - `swiftformat --lint src tests` — Check code style
@@ -30,11 +31,15 @@ and plays it on the real output device through a private aggregate device.
 ## Architecture
 - `src/OvertoneDSP` (C): everything reachable from the HAL IO proc (`io.c`). Rules: no allocation, no
   locks, no Objective-C/Swift calls, no blocking. Parameters arrive via the triple buffer in `params.c`;
-  the Audio Unit chain via the hazard-pointer swap in `plugins.c`. Chain order: taps mix → preamp →
+  the Audio Unit chain via the hazard-pointer swap in `plugins.c`. Chain order: taps mix → detector tap → preamp →
   biquad cascade → width → crossfeed → reverb → AU plugins → analyzer tap → volume/balance → limiter.
 - `src/Overtone/Audio`: `ProcessTap` (global tap excluding Overtone and per-app taps, muted when tapped),
   `AggregateDevice` (output device + taps), `AudioPipeline` (one running graph), `AudioEngine`
   (permission, device following, debounced rebuilds, health check).
+- `src/Overtone/Detection`: auto preset mode. `SoundClassifier` streams the pre-EQ detector ring into
+  Apple's SoundAnalysis classifier; `MusicTypeDetector` votes over time (in audio seconds) and prefers
+  Music.app's genre when Music is the only app playing; `AutoPresetController` applies built-in presets
+  while the user's own EQ stays in `AppState.manualEqualizer` (what gets saved).
 - `src/Overtone/DSP/ParamsBuilder.swift`: pure translation from settings to the C `ot_params` snapshot.
 - `src/Overtone/App/AppController.swift`: wires `AppState` changes to the engine, persistence, per-device
   profiles, mixer taps and volume keys.

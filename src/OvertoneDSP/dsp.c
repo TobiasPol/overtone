@@ -106,6 +106,9 @@ static void store_peak(_Atomic float *slot, float peak) {
 void ot_dsp_run_chain(ot_dsp *d, const ot_params *p, float *l, float *r, uint32_t n) {
     ot_smoothers *s = &d->smooth;
     prime(s, p);
+    if (p->detector_enabled) {
+        ot_ring_write(&d->detector, l, r, n); /* before any processing, so EQ never feeds back */
+    }
     apply_gain(&s->preamp, p->preamp, s->coef, l, r, n);
     ot_eq_process(&d->eq, p, l, r, n);
     ot_width_process(&s->width, p->width, s->coef, l, r, n);
@@ -133,6 +136,10 @@ void ot_dsp_process(ot_dsp *dsp, float *left, float *right, uint32_t frames) {
 
 uint32_t ot_dsp_read_analyzer(ot_dsp *dsp, float *dst, uint32_t count) {
     return ot_ring_read(&dsp->analyzer, dst, count);
+}
+
+uint32_t ot_dsp_drain_detector(ot_dsp *dsp, float *dst, uint32_t max) {
+    return ot_ring_drain(&dsp->detector, &dsp->detector_cursor, dst, max);
 }
 
 void ot_dsp_read_peaks(ot_dsp *dsp, float *left, float *right) {

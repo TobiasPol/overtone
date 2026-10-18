@@ -1,4 +1,4 @@
-/* Single-producer/single-consumer ring of mono samples for the spectrum analyzer. */
+/* Single-producer/single-consumer rings of mono samples (spectrum analyzer, music type detector). */
 #include "dsp_internal.h"
 
 #define OT_RING_MASK (OT_ANALYZER_SIZE - 1)
@@ -21,4 +21,23 @@ uint32_t ot_ring_read(ot_ring *ring, float *dst, uint32_t count) {
         dst[i] = ring->data[(start + i) & OT_RING_MASK];
     }
     return count;
+}
+
+/* Copies the samples written since `cursor` and advances it. A consumer that fell behind
+   skips ahead to the newest half of the ring, which the writer cannot reach mid-copy. */
+uint32_t ot_ring_drain(ot_ring *ring, uint32_t *cursor, float *dst, uint32_t max) {
+    uint32_t w = atomic_load_explicit(&ring->write, memory_order_acquire);
+    uint32_t pending = w - *cursor;
+    if (pending > OT_ANALYZER_SIZE / 2) {
+        *cursor = w - OT_ANALYZER_SIZE / 2;
+        pending = OT_ANALYZER_SIZE / 2;
+    }
+    if (pending > max) {
+        pending = max;
+    }
+    for (uint32_t i = 0; i < pending; i++) {
+        dst[i] = ring->data[(*cursor + i) & OT_RING_MASK];
+    }
+    *cursor += pending;
+    return pending;
 }

@@ -23,7 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.terminate(nil)
             return
         }
-        if PluginDiagnostics.runIfRequested() { return }
+        if PluginDiagnostics.runIfRequested() || DetectionDiagnostics.runIfRequested() { return }
         MainMenu.install()
         let controller = AppController()
         controller.start()

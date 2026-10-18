@@ -64,6 +64,13 @@ struct GeneralSettings: Codable, Equatable, Sendable {
     var selectedSection: AppSection = .equalizer
 }
 
+/// Auto mode: picks a built-in preset for what is playing.
+struct AutoPresetSettings: Codable, Equatable, Sendable {
+    var isEnabled = false
+    /// Trust Music.app's genre tag while Music is the only app playing.
+    var useMusicAppGenre = true
+}
+
 /// Equalizer and headphone correction remembered for one output device.
 struct DeviceProfile: Codable, Equatable, Sendable {
     var equalizer: EqualizerSettings

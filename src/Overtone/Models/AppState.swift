@@ -5,7 +5,7 @@ import Observation
 /// notifies the controller, which pushes DSP parameters and schedules a save.
 @MainActor @Observable
 final class AppState {
-    enum Change { case power, dsp, mixer, plugins, general, profiles }
+    enum Change { case power, dsp, mixer, plugins, general, profiles, autoPreset }
 
     var isEnabled = true { didSet { notify(.power) } }
     var equalizer = EqualizerSettings() { didSet { notify(.dsp) } }
@@ -16,6 +16,10 @@ final class AppState {
     var plugins: [PluginSlotConfig] = [] { didSet { notify(.plugins) } }
     var general = GeneralSettings() { didSet { notify(.general) } }
     var deviceProfiles: [String: DeviceProfile] = [:] { didSet { notify(.profiles) } }
+    var autoPreset = AutoPresetSettings() { didSet { notify(.autoPreset) } }
+    /// The user's own equalizer while auto mode has swapped a preset in. Saving and device
+    /// profiles use this instead of `equalizer`, so auto choices never overwrite the user's EQ.
+    var manualEqualizer: EqualizerSettings?
 
     @ObservationIgnored var onChange: ((Change) -> Void)?
     @ObservationIgnored private var isRestoring = false
@@ -27,8 +31,9 @@ final class AppState {
 
     var persisted: PersistedState {
         PersistedState(
-            isEnabled: isEnabled, equalizer: equalizer, correction: correction, spatial: spatial,
-            output: output, mixer: mixer, plugins: plugins, general: general, deviceProfiles: deviceProfiles
+            isEnabled: isEnabled, equalizer: manualEqualizer ?? equalizer, correction: correction, spatial: spatial,
+            output: output, mixer: mixer, plugins: plugins, general: general, deviceProfiles: deviceProfiles,
+            autoPreset: autoPreset
         )
     }
 
@@ -45,6 +50,8 @@ final class AppState {
         plugins = state.plugins
         general = state.general
         deviceProfiles = state.deviceProfiles
+        autoPreset = state.autoPreset
+        manualEqualizer = nil
     }
 
     /// Swaps in the equalizer/correction remembered for a device (or keeps the current ones).
@@ -56,7 +63,7 @@ final class AppState {
 
     func storeProfile(for deviceUID: String) {
         guard general.rememberPerDevice else { return }
-        let profile = DeviceProfile(equalizer: equalizer, correction: correction)
+        let profile = DeviceProfile(equalizer: manualEqualizer ?? equalizer, correction: correction)
         if deviceProfiles[deviceUID] != profile {
             deviceProfiles[deviceUID] = profile
         }
@@ -75,13 +82,15 @@ struct PersistedState: Codable {
     var plugins: [PluginSlotConfig] = []
     var general = GeneralSettings()
     var deviceProfiles: [String: DeviceProfile] = [:]
+    var autoPreset = AutoPresetSettings()
 
     init() {}
 
     init(
         isEnabled: Bool, equalizer: EqualizerSettings, correction: HeadphoneCorrection,
         spatial: SpatialSettings, output: OutputSettings, mixer: MixerSettings,
-        plugins: [PluginSlotConfig], general: GeneralSettings, deviceProfiles: [String: DeviceProfile]
+        plugins: [PluginSlotConfig], general: GeneralSettings, deviceProfiles: [String: DeviceProfile],
+        autoPreset: AutoPresetSettings = AutoPresetSettings()
     ) {
         self.isEnabled = isEnabled
         self.equalizer = equalizer
@@ -92,6 +101,7 @@ struct PersistedState: Codable {
         self.plugins = plugins
         self.general = general
         self.deviceProfiles = deviceProfiles
+        self.autoPreset = autoPreset
     }
 
     init(from decoder: Decoder) throws {
@@ -108,5 +118,6 @@ struct PersistedState: Codable {
         plugins = value(.plugins, [])
         general = value(.general, GeneralSettings())
         deviceProfiles = value(.deviceProfiles, [:])
+        autoPreset = value(.autoPreset, AutoPresetSettings())
     }
 }
