@@ -7,7 +7,7 @@ struct SettingsView: View {
             InterfaceSettingsTab().tabItem { Label("Interface", systemImage: "paintpalette") }
             AboutTab().tabItem { Label("About", systemImage: "info.circle") }
         }
-        .frame(width: 480, height: 380)
+        .frame(width: 480, height: 520)
     }
 }
 
@@ -27,6 +27,15 @@ private struct GeneralSettingsTab: View {
                     Text(launchError).font(.caption).foregroundStyle(.orange)
                 }
                 Toggle("Remember EQ and headphone correction per output device", isOn: $state.general.rememberPerDevice)
+            }
+            Section("Auto Preset") {
+                Toggle("Choose an EQ preset for what’s playing", isOn: $state.autoPreset.isEnabled)
+                Toggle("Use the genre from Music when it’s the only app playing", isOn: $state.autoPreset.useMusicAppGenre)
+                    .disabled(!state.autoPreset.isEnabled)
+                Text(
+                    "Recognises speech and common music styles on your Mac; no audio leaves it. Your own EQ returns when this is off or a track has no clear style. Changing the EQ yourself pauses it until the music changes."
+                )
+                .font(.caption).foregroundStyle(.secondary)
             }
             Section("Volume") {
                 Picker("Maximum volume boost", selection: $state.output.maxBoost) {

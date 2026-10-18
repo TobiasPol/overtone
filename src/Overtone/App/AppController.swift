@@ -12,6 +12,7 @@ final class AppController {
     @ObservationIgnored let mixer = VolumeMixer()
     @ObservationIgnored let plugins: PluginHost
     @ObservationIgnored let analyzer: SpectrumAnalyzer
+    @ObservationIgnored let autoPreset: AutoPresetController
     @ObservationIgnored private let store = SettingsStore()
     @ObservationIgnored private let volumeKeys = VolumeKeyInterceptor()
     @ObservationIgnored private let hud = VolumeHUD()
@@ -26,6 +27,7 @@ final class AppController {
     init() {
         plugins = PluginHost(dsp: engine.dsp)
         analyzer = SpectrumAnalyzer(dsp: engine.dsp)
+        autoPreset = AutoPresetController(state: state, dsp: engine.dsp)
     }
 
     func start() {
@@ -42,6 +44,7 @@ final class AppController {
         Task { await plugins.restore(savedPlugins) }
         volumeKeys.handler = { [weak self] key in self?.handleVolumeKey(key) }
         engine.setEnabled(state.isEnabled)
+        autoPreset.update()
         updateVolumeKeyCapture()
     }
 
@@ -54,6 +57,7 @@ final class AppController {
         engine.syncProcesses()
         engine.setEnabled(state.isEnabled)
         engine.publishParameters()
+        autoPreset.update()
         updateAnalyzer()
         updateVolumeKeyCapture()
         store.save(state.persisted)
@@ -95,6 +99,7 @@ final class AppController {
         engine.willStart = { [weak self] rate in
             self?.plugins.prepare(sampleRate: rate)
             self?.analyzer.sampleRate = rate
+            self?.autoPreset.sampleRate = rate
         }
         engine.outputDeviceChanged = { [weak self] device in self?.outputDeviceChanged(device) }
     }
@@ -103,9 +108,11 @@ final class AppController {
         switch change {
         case .power:
             engine.setEnabled(state.isEnabled)
+            autoPreset.update()
             updateAnalyzer()
             updateVolumeKeyCapture()
         case .dsp:
+            autoPreset.equalizerDidChange()
             engine.publishParameters()
             if let currentDeviceUID { state.storeProfile(for: currentDeviceUID) }
             updateVolumeKeyCapture()
@@ -119,6 +126,9 @@ final class AppController {
         case .general:
             updateAnalyzer()
             engine.publishParameters()
+        case .autoPreset:
+            autoPreset.update()
+            engine.publishParameters()
         case .plugins, .profiles:
             break
         }
@@ -129,7 +139,7 @@ final class AppController {
         let settings = DSPSettings(
             equalizer: state.equalizer, correction: state.correction, spatial: state.spatial,
             output: state.output, tapGains: VolumeMixer.tapGains(settings: state.mixer),
-            analyzerEnabled: analyzerWanted
+            analyzerEnabled: analyzerWanted, detectorEnabled: autoPreset.isActive
         )
         return ParamsBuilder.make(settings, context: context)
     }
@@ -143,9 +153,11 @@ final class AppController {
     }
 
     private func outputDeviceChanged(_ device: AudioDevice) {
+        autoPreset.suspendForDeviceChange() // stores the user's own EQ with the old device
         currentDeviceUID = device.uid
         outputHasHardwareVolume = device.hasHardwareVolume
         state.loadProfile(for: device.uid)
+        autoPreset.resumeAfterDeviceChange()
         updateVolumeKeyCapture()
     }
 

@@ -112,6 +112,8 @@ struct AppEnvironment<Content: View>: View {
             .environment(controller.mixer)
             .environment(controller.plugins)
             .environment(controller.analyzer)
+            .environment(controller.autoPreset)
+            .environment(controller.autoPreset.detector)
             .tint(controller.state.general.accent.color)
     }
 }

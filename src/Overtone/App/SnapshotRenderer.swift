@@ -35,6 +35,11 @@ enum SnapshotRenderer {
                 capture(popover(controller), to: folder.appendingPathComponent("\(name).png"))
             }
         }
+        controller.state.general.selectedSection = .equalizer
+        controller.state.equalizer.mode = .advanced
+        controller.state.autoPreset.isEnabled = true
+        controller.autoPreset.detector.showSnapshot(.sound(.rock))
+        capture(popover(controller), to: folder.appendingPathComponent("popover-equalizer-auto.png"))
         capture(AppEnvironment(controller: controller) { SettingsView() }, to: folder.appendingPathComponent("settings.png"))
         print("Snapshots written to \(folder.path)")
     }

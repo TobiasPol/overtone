@@ -59,6 +59,13 @@ typedef struct {
     _Atomic uint32_t write;
 } ot_ring;
 
+/* Single-producer/single-consumer queue: the producer never overwrites unread samples. */
+typedef struct {
+    float data[OT_ANALYZER_SIZE];
+    _Atomic uint32_t write; /* advanced by the IO thread */
+    _Atomic uint32_t read;  /* advanced by the consumer */
+} ot_fifo;
+
 /* Wait-free triple buffer: one writer (main thread), one reader (IO thread). */
 typedef struct {
     ot_params slots[3];
@@ -85,6 +92,7 @@ struct ot_dsp {
     ot_reverb reverb;
     ot_limiter limiter;
     ot_ring analyzer;
+    ot_fifo detector;
     _Atomic(ot_plugin_chain *) chain;
     _Atomic(ot_plugin_chain *) chain_in_use;
     ot_plugin_input plugin_input;
@@ -122,6 +130,8 @@ void ot_limiter_process(ot_limiter *l, const ot_params *p, float fs, float *left
 /* analyzer.c */
 void ot_ring_write(ot_ring *ring, const float *l, const float *r, uint32_t n);
 uint32_t ot_ring_read(ot_ring *ring, float *dst, uint32_t count);
+void ot_fifo_write(ot_fifo *q, const float *l, const float *r, uint32_t n);
+uint32_t ot_fifo_read(ot_fifo *q, float *dst, uint32_t max);
 
 /* plugins.c */
 void ot_plugins_process(struct ot_dsp *dsp, float *l, float *r, uint32_t n);
