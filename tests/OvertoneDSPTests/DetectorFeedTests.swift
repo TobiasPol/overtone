@@ -43,16 +43,29 @@ struct DetectorFeedTests {
         #expect(ot_dsp_drain_detector(dsp, &out, 1_500) == 0)
     }
 
-    @Test func disabledFeedWritesNothingAndOverrunKeepsNewest() {
+    @Test func disabledFeedWritesNothing() {
         let dsp = ot_dsp_create()!
         defer { ot_dsp_destroy(dsp) }
         ot_dsp_prepare(dsp, 48_000)
-        var out = [Float](repeating: 0, count: Int(OT_ANALYZER_SIZE))
+        var out = [Float](repeating: 0, count: 1_024)
         process(dsp, ramp: 0..<1_000) { _ in }
         #expect(ot_dsp_drain_detector(dsp, &out, UInt32(out.count)) == 0)
+    }
+
+    /// A stalled reader must never see unread samples overwritten: a full queue drops new audio.
+    @Test func fullQueueKeepsUnreadSamplesAndDropsNewOnes() {
+        let dsp = ot_dsp_create()!
+        defer { ot_dsp_destroy(dsp) }
+        ot_dsp_prepare(dsp, 48_000)
+        let size = Int(OT_ANALYZER_SIZE)
+        var out = [Float](repeating: 0, count: 2 * size)
         process(dsp, ramp: 0..<40_000) { $0.detector_enabled = 1 }
         let count = Int(ot_dsp_drain_detector(dsp, &out, UInt32(out.count)))
-        #expect(count == Int(OT_ANALYZER_SIZE) / 2)
-        #expect(abs(out[count - 1] - 39_999 / 100_000) < 1e-6)
+        #expect(count == size)
+        #expect(out[0] == 0)
+        #expect(abs(out[count - 1] - Float(size - 1) / 100_000) < 1e-7)
+        process(dsp, ramp: 50_000..<50_010) { $0.detector_enabled = 1 } // room again after the read
+        #expect(ot_dsp_drain_detector(dsp, &out, UInt32(out.count)) == 10)
+        #expect(abs(out[0] - 50_000 / 100_000) < 1e-7)
     }
 }

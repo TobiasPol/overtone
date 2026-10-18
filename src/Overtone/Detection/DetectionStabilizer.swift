@@ -6,7 +6,7 @@ import Foundation
 /// persist for `forceTime` (gapless albums, DJ mixes).
 ///
 /// Tuned by replaying classifier output for 33 tracks (about 2 hours) as a playlist: this policy
-/// kept an acceptable preset 84% of the time with 40 switches, against 77% and 44 switches when
+/// kept an acceptable preset 80% of the time with 40 switches, against 77% and 44 switches when
 /// every decision after the first needed `forceTime` and the fallback could override any style.
 struct DetectionStabilizer<Value: Equatable> {
     var holdTime: TimeInterval
@@ -43,7 +43,8 @@ struct DetectionStabilizer<Value: Equatable> {
 
     /// Feeds the latest proposal; returns the value to switch to, or nil to stay put.
     mutating func update(_ proposal: Value?, at time: TimeInterval) -> Value? {
-        guard let proposal, proposal != current, !(proposal == fallback && current != nil && decidedSinceGap) else {
+        let settled = proposal == current && decidedSinceGap
+        guard let proposal, !settled, !(proposal == fallback && current != nil && decidedSinceGap) else {
             candidate = nil
             return nil
         }
@@ -52,6 +53,15 @@ struct DetectionStabilizer<Value: Equatable> {
             candidateSince = time
         }
         let held = time - candidateSince
+        if proposal == current {
+            // The previous track's value fits this track too: once that holds, it is this track's
+            // decision, so the fallback can no longer replace it.
+            if held >= holdTime {
+                decidedSinceGap = true
+                candidate = nil
+            }
+            return nil
+        }
         let nearGap = lastGap.map { time - $0 <= gapWindow } ?? false
         guard held >= (current == nil || nearGap ? holdTime : forceTime) else { return nil }
         current = proposal

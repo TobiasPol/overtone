@@ -91,10 +91,11 @@ struct MusicTypeVoter {
         self.minimumWindows = minimumWindows
     }
 
+    /// Every window ages out old votes, even one without content, so a stretch of noise or sound
+    /// effects can't keep an outdated proposal alive.
     mutating func add(_ window: ClassificationWindow) {
-        guard window.hasContent else { return }
-        windows.append(window)
         windows.removeAll { window.time - $0.time > span }
+        if window.hasContent { windows.append(window) }
     }
 
     mutating func reset() {

@@ -39,6 +39,20 @@ struct DetectionTests {
         #expect(voter.proposal == .speech)
     }
 
+    @Test func contentFreeWindowsStillAgeOutOldVotes() {
+        var voter = MusicTypeVoter(span: 15, minimumWindows: 3)
+        let rock = Self.scores("Adrenalize")
+        for time in [0.0, 1.5, 3, 4.5] {
+            voter.add(ClassificationWindow(time: time, scores: rock))
+        }
+        #expect(voter.proposal == .rock)
+        for time in stride(from: 6.0, through: 30, by: 1.5) {
+            voter.add(ClassificationWindow(time: time, scores: ["music": 0.05, "speech": 0.05])) // noise
+        }
+        #expect(voter.windows.isEmpty)
+        #expect(voter.proposal == nil)
+    }
+
     @Test func stabilizerSwitchesFastAtStartAndGapsOnly() {
         var s = DetectionStabilizer<SoundCategory>(holdTime: 6, forceTime: 45, gapWindow: 30)
         var switches: [SoundCategory?] = []
@@ -67,6 +81,18 @@ struct DetectionTests {
         s.noteGap(at: 110)
         switches += [s.update(.music, at: 111), s.update(.music, at: 117)] // next track: no clear style
         #expect(switches == [nil, .rock] + Array(repeating: nil, count: 10) + [nil, .music])
+    }
+
+    @Test func repeatingTheStyleAfterAGapCountsAsThisTracksDecision() {
+        var s = DetectionStabilizer<SoundCategory>(fallback: .music)
+        var switches = [s.update(.rock, at: 0), s.update(.rock, at: 6)]
+        s.noteGap(at: 100)
+        switches += [s.update(.rock, at: 101), s.update(.rock, at: 107)] // next track: Rock again
+        for time in stride(from: 160.0, through: 260, by: 10) {
+            switches.append(s.update(.music, at: time)) // a long unclear passage later in that track
+        }
+        #expect(switches.compactMap(\.self) == [.rock])
+        #expect(s.current == .rock)
     }
 
     @Test func correctionsStayQuickShortlyAfterAGap() {

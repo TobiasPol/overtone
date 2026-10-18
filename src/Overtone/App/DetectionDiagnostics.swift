@@ -54,6 +54,7 @@ enum DetectionDiagnostics {
 
     /// Pushes mono audio through the DSP in 20 ms blocks, paced at `speed`× real time.
     private static func feed(_ mono: [Float], dsp: DSPCore, clock: PlaybackClock) async {
+        clock.resync() // time spent decoding the file is not playback time
         let block = Int(clock.sampleRate * 0.02)
         var offset = 0
         while offset < mono.count {
@@ -102,7 +103,7 @@ enum DetectionDiagnostics {
     private final class PlaybackClock {
         let sampleRate: Double
         let speed: Double
-        private let started = ProcessInfo.processInfo.systemUptime
+        private var started = ProcessInfo.processInfo.systemUptime
         private var frames = 0
 
         init(sampleRate: Double, speed: Double) {
@@ -113,5 +114,10 @@ enum DetectionDiagnostics {
         var audioTime: Double { Double(frames) / sampleRate }
         var wallDeadline: TimeInterval { started + audioTime / speed }
         func advance(_ count: Int) { frames += count }
+
+        /// Restarts pacing from now, so audio isn't sent in a catch-up burst after a pause.
+        func resync() {
+            started = ProcessInfo.processInfo.systemUptime - audioTime / speed
+        }
     }
 }

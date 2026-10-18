@@ -29,8 +29,8 @@ final class SoundClassifier: @unchecked Sendable {
     private var scratch = [Float](repeating: 0, count: Int(OT_ANALYZER_SIZE) / 2)
     private var gate = SilenceGate()
     private var sampleRate = 48_000.0
-    /// Drain interval: 0.1 s, shorter at high sample rates so a drain never exceeds the
-    /// half ring (8192 samples) `ot_dsp_drain_detector` returns per call.
+    /// Drain interval: 0.1 s, shorter at high sample rates, so the 16384-sample detector queue
+    /// never gets more than about a third full and no audio is dropped.
     private var tick = 0.1
 
     init(dsp: DSPCore, handler: @escaping @Sendable (Event) -> Void) {
@@ -63,7 +63,7 @@ final class SoundClassifier: @unchecked Sendable {
             Log.detection.error("Sound classifier unavailable: \(error.localizedDescription, privacy: .public)")
             return
         }
-        _ = dsp.drainDetector(into: &scratch) // drop anything left from an earlier run
+        while dsp.drainDetector(into: &scratch) == scratch.count {} // drop audio left from an earlier run
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + tick, repeating: tick, leeway: .milliseconds(10))
         timer.setEventHandler { [weak self] in self?.drain() }

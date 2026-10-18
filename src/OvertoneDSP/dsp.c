@@ -107,7 +107,7 @@ void ot_dsp_run_chain(ot_dsp *d, const ot_params *p, float *l, float *r, uint32_
     ot_smoothers *s = &d->smooth;
     prime(s, p);
     if (p->detector_enabled) {
-        ot_ring_write(&d->detector, l, r, n); /* before any processing, so EQ never feeds back */
+        ot_fifo_write(&d->detector, l, r, n); /* before any processing, so EQ never feeds back */
     }
     apply_gain(&s->preamp, p->preamp, s->coef, l, r, n);
     ot_eq_process(&d->eq, p, l, r, n);
@@ -139,7 +139,7 @@ uint32_t ot_dsp_read_analyzer(ot_dsp *dsp, float *dst, uint32_t count) {
 }
 
 uint32_t ot_dsp_drain_detector(ot_dsp *dsp, float *dst, uint32_t max) {
-    return ot_ring_drain(&dsp->detector, &dsp->detector_cursor, dst, max);
+    return ot_fifo_read(&dsp->detector, dst, max);
 }
 
 void ot_dsp_read_peaks(ot_dsp *dsp, float *left, float *right) {

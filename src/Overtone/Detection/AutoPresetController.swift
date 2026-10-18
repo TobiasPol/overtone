@@ -23,7 +23,7 @@ final class AutoPresetController {
 
     private struct Glide {
         let from: AdvancedEQ
-        let target: EqualizerSettings
+        var target: EqualizerSettings
         let began: TimeInterval
         /// Hand the equalizer back to the user once the fade ends.
         let restoresManual: Bool
@@ -68,9 +68,12 @@ final class AutoPresetController {
     func equalizerDidChange() {
         guard !isApplying, state.manualEqualizer != nil, let lastApplied, state.equalizer != lastApplied else { return }
         if Self.sameCurve(state.equalizer, lastApplied) {
-            // Only the on/off switch or auto-gain changed: carry it over, keep auto mode going.
+            // Only the on/off switch or auto-gain changed: carry it over (into a running fade too,
+            // so its next step doesn't undo it) and keep auto mode going.
             state.manualEqualizer?.isEnabled = state.equalizer.isEnabled
             state.manualEqualizer?.autoGain = state.equalizer.autoGain
+            glide?.target.isEnabled = state.equalizer.isEnabled
+            glide?.target.autoGain = state.equalizer.autoGain
             self.lastApplied = state.equalizer
             return
         }
@@ -110,6 +113,7 @@ final class AutoPresetController {
             return
         }
         glide = Glide(from: start.advanced, target: target, began: Self.now, restoresManual: restoresManual)
+        lastApplied = start // an edit before the first step must still count as the user taking over
         glideTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.glideStep() }
         }

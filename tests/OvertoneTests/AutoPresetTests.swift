@@ -78,6 +78,28 @@ struct AutoPresetTests {
         #expect(state.equalizer == userEQ)
     }
 
+    @Test func editBeforeTheFirstFadeStepPausesAutoMode() {
+        auto.glideDuration = 10
+        state.equalizer.mode = .advanced
+        auto.apply(.sound(.rock)) // fade scheduled, nothing written yet
+        state.equalizer.advanced.gains[3] = 7
+        #expect(auto.isPaused)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1)) // a live fade would step now
+        #expect(state.equalizer.advanced.gains[3] == 7)
+        #expect(state.manualEqualizer == nil)
+    }
+
+    @Test func togglingTheEqualizerDuringAFadeSticks() {
+        auto.glideDuration = 10
+        state.equalizer.mode = .advanced
+        auto.apply(.sound(.rock))
+        state.equalizer.isEnabled = false
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        #expect(!state.equalizer.isEnabled)
+        #expect(!auto.isPaused)
+        #expect(state.manualEqualizer?.isEnabled == false)
+    }
+
     @Test func blendInterpolatesGainsAndPreamp() {
         let a = AdvancedEQ(gains: Array(repeating: 0, count: 10), preamp: 0)
         let b = AdvancedEQ(gains: Array(repeating: 4, count: 10), preamp: -2)
