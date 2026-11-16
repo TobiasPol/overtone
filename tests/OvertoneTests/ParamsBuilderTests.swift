@@ -9,7 +9,9 @@ struct ParamsBuilderTests {
         sampleRate: 48_000,
         tapKeys: [ProcessTap.globalKey, "com.spotify.client"],
         outputLeft: 2,
-        outputRight: 3
+        outputRight: 3,
+        tapLeft: 2,
+        tapRight: 3
     )
 
     @Test func neutralSettingsArePassThrough() {
@@ -88,6 +90,16 @@ struct ParamsBuilderTests {
         #expect(p.tap_gain.0 == 1 && p.tap_gain.1 == 0.5)
         #expect(p.volume == 0)
         #expect(p.out_left == 2 && p.out_right == 3)
+        #expect(p.tap_left == 2 && p.tap_right == 3)
+    }
+
+    @Test func tapSourceFindsThePairsStream() {
+        #expect(TapSource.locate(layout: [2], left: 0, right: 1) == TapSource(stream: 0, left: 0, right: 1))
+        #expect(TapSource.locate(layout: [4], left: 2, right: 3) == TapSource(stream: 0, left: 2, right: 3))
+        #expect(TapSource.locate(layout: [2, 2], left: 2, right: 3) == TapSource(stream: 1, left: 0, right: 1))
+        #expect(TapSource.locate(layout: [1], left: 0, right: 0) == TapSource(stream: 0, left: 0, right: 0))
+        #expect(TapSource.locate(layout: [2, 2], left: 1, right: 2) == TapSource(stream: 0, left: 1, right: 1))
+        #expect(TapSource.locate(layout: [], left: 0, right: 1) == .firstPair)
     }
 
     @Test func spatialOnlyAppliesWhenEnabled() {

@@ -33,13 +33,18 @@ enum AudioProcessCatalog {
         }
     }
 
-    /// Whether any app other than Overtone is currently playing audio.
-    static func isAnyOtherProcessPlaying() -> Bool {
+    /// Whether any app other than Overtone is currently playing to `device`. Apps playing to
+    /// another output (rekordbox on a DJ controller) don't count: the device-bound taps never
+    /// see them, so their playback must not make an idle pipeline look stalled.
+    static func isAnyOtherProcessPlaying(to device: AudioObjectID) -> Bool {
         let own = getpid()
         return AudioObjectID.system.readArray(kAudioHardwarePropertyProcessObjectList, of: AudioObjectID.self)
             .contains {
                 $0.read(kAudioProcessPropertyIsRunningOutput, default: UInt32(0)) != 0
                     && $0.read(kAudioProcessPropertyPID, default: pid_t(-1)) != own
+                    && $0.readArray(
+                        kAudioProcessPropertyDevices, scope: kAudioObjectPropertyScopeOutput, of: AudioObjectID.self
+                    ).contains(device)
             }
     }
 

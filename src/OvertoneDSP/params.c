@@ -18,6 +18,8 @@ void ot_params_init(ot_params *p, float sample_rate) {
     p->limiter_release_ms = 80.0f;
     p->tap_count = 1;
     p->tap_gain[0] = 1.0f;
+    p->tap_left = 0;
+    p->tap_right = 1;
     p->out_left = 0;
     p->out_right = 1;
 }
