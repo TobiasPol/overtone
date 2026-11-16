@@ -231,7 +231,7 @@ final class AudioEngine {
                 Log.engine.notice("Audio is flowing (\(cycles) IO cycles)")
                 return
             }
-            guard AudioProcessCatalog.isAnyOtherProcessPlaying() else {
+            guard let output = pipeline?.output, AudioProcessCatalog.isAnyOtherProcessPlaying(to: output.id) else {
                 scheduleHealthCheck(after: 3) // idle: waiting for the first audio is expected
                 return
             }

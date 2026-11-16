@@ -30,9 +30,10 @@ final class AudioPipeline {
         self.ownProcess = ownProcess
         var created: [ProcessTap] = []
         do {
-            try created.append(.global(excluding: Self.exclusions(own: ownProcess, appTaps: appTaps)))
+            let exclusions = Self.exclusions(own: ownProcess, appTaps: appTaps)
+            try created.append(.global(excluding: exclusions, deviceUID: output.uid))
             for request in appTaps {
-                try created.append(.app(key: request.key, processes: request.processes))
+                try created.append(.app(key: request.key, processes: request.processes, deviceUID: output.uid))
             }
             aggregate = try AggregateDevice(output: output, taps: created)
         } catch {

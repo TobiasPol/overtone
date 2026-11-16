@@ -16,9 +16,12 @@
                                                  └──────────────────────────────────────────────────────────┘
 ```
 
-- **Global tap**: `CATapDescription(stereoGlobalTapButExcludeProcesses:)` excluding Overtone's own
-  process object (to avoid feedback) and every process that has a per-app tap.
-- **Per-app taps**: created for apps with an entry in the mixer settings. All helper processes of an
+- **Global tap**: `CATapDescription(excludingProcesses:deviceUID:stream:)` on the current output device,
+  excluding Overtone's own process object (to avoid feedback) and every process that has a per-app tap.
+  Binding to the device matters: a device-less global tap captures and mutes every process on every
+  output, so an app playing to another interface (rekordbox on a DJ mixer) would go silent there.
+- **Per-app taps**: `CATapDescription(processes:deviceUID:stream:)` on the same device, created for apps
+  with an entry in the mixer settings. All helper processes of an
   app (browser renderers, for example) are grouped via the responsible-process SPI used by Activity Monitor.
 - **Mute behaviour**: `.mutedWhenTapped`. Tapped processes are silent only while Overtone reads the tap,
   so quitting or crashing restores normal audio immediately.
