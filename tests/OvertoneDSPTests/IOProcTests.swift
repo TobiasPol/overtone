@@ -87,6 +87,34 @@ struct IOProcTests {
         #expect(abs(output.sample(buffer: 1, frame: 64, channel: 1) + 0.25) < 1e-6)
     }
 
+    @Test func readsConfiguredPairFromMultichannelTap() {
+        // A device-bound tap on a four-channel stream whose stereo pair is channels 3/4.
+        let input = BufferList(channels: [4], frames: 128) { _, channel in [0.9, 0.8, 0.3, -0.2][channel] }
+        let output = BufferList(channels: [2], frames: 128)
+        runIO({ p in
+            p.tap_left = 2
+            p.tap_right = 3
+        }, input: input, output: output)
+        #expect(abs(output.sample(buffer: 0, frame: 64, channel: 0) - 0.3) < 1e-6)
+        #expect(abs(output.sample(buffer: 0, frame: 64, channel: 1) + 0.2) < 1e-6)
+    }
+
+    @Test func fallsBackToFirstChannelsWhenTapIsNarrower() {
+        let stereo = BufferList(channels: [2], frames: 64) { _, channel in channel == 0 ? 0.5 : 0.1 }
+        let mono = BufferList(channels: [1], frames: 64) { _, _ in 0.4 }
+        let fromStereo = BufferList(channels: [2], frames: 64)
+        let fromMono = BufferList(channels: [2], frames: 64)
+        let pair: (inout ot_params) -> Void = { p in
+            p.tap_left = 2
+            p.tap_right = 3
+        }
+        runIO(pair, input: stereo, output: fromStereo)
+        runIO(pair, input: mono, output: fromMono)
+        #expect(abs(fromStereo.sample(buffer: 0, frame: 32, channel: 0) - 0.5) < 1e-6)
+        #expect(abs(fromStereo.sample(buffer: 0, frame: 32, channel: 1) - 0.1) < 1e-6)
+        #expect(abs(fromMono.sample(buffer: 0, frame: 32, channel: 1) - 0.4) < 1e-6)
+    }
+
     @Test func foldsDownToMonoDevices() {
         let input = BufferList(channels: [2], frames: 64) { _, channel in channel == 0 ? 0.6 : 0.2 }
         let output = BufferList(channels: [1], frames: 64)
