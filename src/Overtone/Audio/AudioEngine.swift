@@ -9,6 +9,9 @@ struct EngineContext: Equatable {
     var tapKeys: [String]
     var outputLeft: Int
     var outputRight: Int
+    /// Channels of the preferred pair inside each tap buffer.
+    var tapLeft = 0
+    var tapRight = 1
 
     static let idle = EngineContext(
         sampleRate: 48_000, tapKeys: [ProcessTap.globalKey], outputLeft: 0, outputRight: 1
@@ -192,7 +195,8 @@ final class AudioEngine {
         generation += 1
         context = EngineContext(
             sampleRate: pipe.sampleRate, tapKeys: pipe.tapKeys,
-            outputLeft: pipe.outputChannels.left, outputRight: pipe.outputChannels.right
+            outputLeft: pipe.outputChannels.left, outputRight: pipe.outputChannels.right,
+            tapLeft: pipe.tapSource.left, tapRight: pipe.tapSource.right
         )
         dsp.prepare(sampleRate: pipe.sampleRate)
         willStart?(pipe.sampleRate)

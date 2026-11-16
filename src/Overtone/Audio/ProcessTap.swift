@@ -12,18 +12,21 @@ final class ProcessTap {
 
     static let globalKey = "__global__"
 
-    /// Everything playing to `deviceUID` except the listed processes (Overtone itself plus apps
-    /// with their own tap). Bound to the device so apps that play to another output (a DJ
-    /// interface, for example) are neither captured nor muted.
-    static func global(excluding processes: [AudioObjectID], deviceUID: String) throws -> ProcessTap {
-        let description = CATapDescription(excludingProcesses: processes, deviceUID: deviceUID, stream: 0)
+    /// Everything playing to `stream` of `deviceUID` except the listed processes (Overtone itself
+    /// plus apps with their own tap). Bound to the device so apps that play to another output
+    /// (a DJ interface, for example) are neither captured nor muted. The tap carries all
+    /// channels of that stream; `TapSource` says which two the IO proc reads.
+    static func global(excluding processes: [AudioObjectID], deviceUID: String, stream: Int) throws -> ProcessTap {
+        let description = CATapDescription(
+            excludingProcesses: processes, deviceUID: deviceUID, stream: UInt(max(0, stream))
+        )
         description.name = "Overtone System Tap"
         return try ProcessTap(key: globalKey, description: description)
     }
 
-    /// Only the listed processes' audio for `deviceUID`, used for per-app volume.
-    static func app(key: String, processes: [AudioObjectID], deviceUID: String) throws -> ProcessTap {
-        let description = CATapDescription(processes: processes, deviceUID: deviceUID, stream: 0)
+    /// Only the listed processes' audio for `stream` of `deviceUID`, used for per-app volume.
+    static func app(key: String, processes: [AudioObjectID], deviceUID: String, stream: Int) throws -> ProcessTap {
+        let description = CATapDescription(processes: processes, deviceUID: deviceUID, stream: UInt(max(0, stream)))
         description.name = "Overtone App Tap \(key)"
         return try ProcessTap(key: key, description: description)
     }

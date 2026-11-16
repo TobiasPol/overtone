@@ -29,18 +29,28 @@ static uint32_t output_frames(const AudioBufferList *out) {
     return buffer_frames(&out->mBuffers[0]);
 }
 
-static void mix_tap(float *gain, float target, float coef, const AudioBuffer *b,
+/* Source channels inside one tap buffer: the configured pair when the buffer has it,
+   otherwise the first two channels (or the only one). */
+static void tap_channels(const ot_params *p, uint32_t ch, uint32_t *cl, uint32_t *cr) {
+    bool fits = p->tap_left < ch && p->tap_right < ch;
+    *cl = fits ? p->tap_left : 0;
+    *cr = fits ? p->tap_right : (ch > 1 ? 1 : 0);
+}
+
+static void mix_tap(float *gain, float target, float coef, const ot_params *p, const AudioBuffer *b,
                     uint32_t offset, uint32_t n, float *l, float *r) {
     uint32_t ch = b->mNumberChannels;
     uint32_t avail = buffer_frames(b);
     if (b->mData == NULL || ch == 0 || offset >= avail) return;
     uint32_t count = avail - offset < n ? avail - offset : n;
     const float *src = (const float *)b->mData + (size_t)offset * ch;
+    uint32_t cl, cr;
+    tap_channels(p, ch, &cl, &cr);
     float g = *gain;
     for (uint32_t i = 0; i < count; i++) {
         g += (target - g) * coef;
-        float sl = src[i * ch];
-        float sr = ch > 1 ? src[i * ch + 1] : sl;
+        float sl = src[i * ch + cl];
+        float sr = src[i * ch + cr];
         l[i] += g * sl;
         r[i] += g * sr;
     }
@@ -56,7 +66,7 @@ static void mix_inputs(ot_dsp *d, const ot_params *p, const AudioBufferList *in,
     uint32_t taps = p->tap_count < in->mNumberBuffers ? p->tap_count : in->mNumberBuffers;
     uint32_t first = in->mNumberBuffers - taps;
     for (uint32_t t = 0; t < taps && t < OT_MAX_TAPS; t++) {
-        mix_tap(&d->smooth.tap[t], p->tap_gain[t], d->smooth.coef, &in->mBuffers[first + t],
+        mix_tap(&d->smooth.tap[t], p->tap_gain[t], d->smooth.coef, p, &in->mBuffers[first + t],
                 offset, n, d->left, d->right);
     }
 }

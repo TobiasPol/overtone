@@ -84,6 +84,8 @@ enum ParamsBuilder {
         p.limiter_ceiling = Float(Decibels.toLinear(output.limiterCeilingDB.clamped(to: -12...0)))
         p.out_left = UInt32(max(0, context.outputLeft))
         p.out_right = UInt32(max(0, context.outputRight))
+        p.tap_left = UInt32(max(0, context.tapLeft))
+        p.tap_right = UInt32(max(0, context.tapRight))
     }
 
     private static func applyTaps(_ gains: [String: Double], keys: [String], to p: inout ot_params) {

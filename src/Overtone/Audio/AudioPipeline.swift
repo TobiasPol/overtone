@@ -7,6 +7,31 @@ struct AppTapRequest: Equatable {
     let processes: [AudioObjectID]
 }
 
+/// Where the output's preferred stereo pair lives: the device stream to tap and the pair's
+/// channel indices inside that stream (device-bound taps carry the whole stream).
+struct TapSource: Equatable {
+    var stream: Int
+    var left: Int
+    var right: Int
+
+    static let firstPair = TapSource(stream: 0, left: 0, right: 1)
+
+    /// `layout` is channels per output stream; `left`/`right` are flattened channel indices.
+    static func locate(layout: [Int], left: Int, right: Int) -> TapSource {
+        var base = 0
+        for (index, count) in layout.enumerated() {
+            let channels = base..<(base + count)
+            if channels.contains(left) {
+                // A pair split across streams can't be tapped as one; read the left side twice.
+                let inStreamRight = channels.contains(right) ? right - base : left - base
+                return TapSource(stream: index, left: left - base, right: inStreamRight)
+            }
+            base += count
+        }
+        return .firstPair
+    }
+}
+
 /// One running capture → DSP → playback graph for a single output device.
 ///
 /// Layout: tap 0 is the global tap (everything except Overtone and the
@@ -16,6 +41,7 @@ final class AudioPipeline {
     let output: AudioDevice
     let sampleRate: Double
     let outputChannels: (left: Int, right: Int)
+    let tapSource: TapSource
     private let taps: [ProcessTap]
     private let aggregate: AggregateDevice
     private let dsp: DSPCore
@@ -28,12 +54,19 @@ final class AudioPipeline {
         self.output = output
         self.dsp = dsp
         self.ownProcess = ownProcess
+        let channels = output.id.preferredStereoChannels(channelCount: output.outputChannels)
+        let source = TapSource.locate(
+            layout: output.id.bufferLayout(scope: kAudioObjectPropertyScopeOutput),
+            left: channels.left, right: channels.right
+        )
         var created: [ProcessTap] = []
         do {
             let exclusions = Self.exclusions(own: ownProcess, appTaps: appTaps)
-            try created.append(.global(excluding: exclusions, deviceUID: output.uid))
+            try created.append(.global(excluding: exclusions, deviceUID: output.uid, stream: source.stream))
             for request in appTaps {
-                try created.append(.app(key: request.key, processes: request.processes, deviceUID: output.uid))
+                try created.append(
+                    .app(key: request.key, processes: request.processes, deviceUID: output.uid, stream: source.stream)
+                )
             }
             aggregate = try AggregateDevice(output: output, taps: created)
         } catch {
@@ -43,13 +76,15 @@ final class AudioPipeline {
         taps = created
         let rate = aggregate.id.nominalSampleRate
         sampleRate = rate > 0 ? rate : max(output.id.nominalSampleRate, 44_100)
-        outputChannels = output.id.preferredStereoChannels(channelCount: output.outputChannels)
+        outputChannels = channels
+        tapSource = source
         let inputs = aggregate.id.bufferLayout(scope: kAudioObjectPropertyScopeInput)
         let outputs = aggregate.id.bufferLayout(scope: kAudioObjectPropertyScopeOutput)
-        let (finalRate, keys, channels) = (sampleRate, tapKeys, outputChannels)
+        let (finalRate, keys) = (sampleRate, tapKeys)
         Log.engine.info("""
         Pipeline for \(output.name, privacy: .public) @ \(finalRate) Hz; taps \(keys, privacy: .public); \
-        aggregate in \(inputs, privacy: .public) out \(outputs, privacy: .public); stereo channels \(channels.left),\(channels.right)
+        aggregate in \(inputs, privacy: .public) out \(outputs, privacy: .public); stereo channels \(channels.left),\(channels.right); \
+        tap stream \(source.stream) channels \(source.left),\(source.right)
         """)
     }
 

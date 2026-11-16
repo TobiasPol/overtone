@@ -47,6 +47,10 @@ typedef struct {
     /* Sources: one gain per process tap, in aggregate tap order. */
     uint32_t tap_count;
     float tap_gain[OT_MAX_TAPS];
+    /* Channels to read from each tap buffer. Device-bound taps carry the whole device
+       stream, so these are the preferred stereo pair's indices within that stream. */
+    uint32_t tap_left;
+    uint32_t tap_right;
 
     /* Routing: flattened output channel indices for left/right. */
     uint32_t out_left;
