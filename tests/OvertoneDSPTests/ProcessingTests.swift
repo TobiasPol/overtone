@@ -109,6 +109,72 @@ struct ProcessingTests {
         #expect(ot_dsp_swap_plugin_chain(dsp, nil) == chain)
         #expect(!ot_dsp_plugin_chain_in_use(dsp, chain))
     }
+
+    @Test func reverbReenableHasNoStaleTailAndZeroFramesAreSafe() {
+        let dsp = ot_dsp_create()!
+        defer { ot_dsp_destroy(dsp) }
+        var p = ot_params()
+        ot_params_init(&p, 48_000)
+        p.reverb_mix = 1
+        p.reverb_size = 1
+        p.analyzer_enabled = 1
+        ot_dsp_publish(dsp, &p)
+        var l = [Float](repeating: 0.5, count: 4_800)
+        var r = l
+        ot_dsp_process(dsp, &l, &r, 4_800)
+
+        // Disable reverb long enough for wet smoother to reach 0 and reset active state.
+        p.reverb_mix = 0
+        ot_dsp_publish(dsp, &p)
+        l = [Float](repeating: 0, count: 19_200)
+        r = l
+        ot_dsp_process(dsp, &l, &r, 19_200)
+
+        // Re-enable on pure silence: stale comb filter store must not leak any tail.
+        p.reverb_mix = 1
+        ot_dsp_publish(dsp, &p)
+        l = [Float](repeating: 0, count: 1_024)
+        r = l
+        ot_dsp_process(dsp, &l, &r, 1_024)
+        #expect(peak(l[...]) == 0)
+
+        // Zero-frame process is a safe no-op; prepare clears stale analyzer samples.
+        ot_dsp_process(dsp, &l, &r, 0)
+        ot_dsp_prepare(dsp, 48_000)
+        var snap = [Float](repeating: 1, count: 512)
+        _ = ot_dsp_read_analyzer(dsp, &snap, 512)
+        #expect(snap.allSatisfy { $0 == 0 })
+    }
+
+    @Test func crossfeedToggleIsSmoothAndHandlesNaNCutoff() {
+        let dsp = ot_dsp_create()!
+        defer { ot_dsp_destroy(dsp) }
+        var l = (0..<14_400).map { 0.3 * Float(sin(2 * .pi * 200 * Double($0) / 48_000)) }
+        var r = [Float](repeating: 0, count: 14_400)
+        var p = ot_params()
+        ot_params_init(&p, 48_000)
+        ot_dsp_publish(dsp, &p)
+        for start in stride(from: 0, to: l.count, by: 512) {
+            if start == 4_608 {
+                p.crossfeed = 1
+                p.crossfeed_cutoff = .nan
+                ot_dsp_publish(dsp, &p)
+            } else if start == 9_728 {
+                p.crossfeed = 0
+                ot_dsp_publish(dsp, &p)
+            }
+            let n = min(512, l.count - start)
+            l.withUnsafeMutableBufferPointer { lb in
+                r.withUnsafeMutableBufferPointer { rb in
+                    ot_dsp_process(dsp, lb.baseAddress! + start, rb.baseAddress! + start, UInt32(n))
+                }
+            }
+        }
+        #expect(l.allSatisfy(\.isFinite) && r.allSatisfy(\.isFinite))
+        let rSteps = zip(r.dropFirst(), r).map { abs($0 - $1) }
+        #expect(rSteps[4_500..<5_200].max()! < 0.05)
+        #expect(rSteps[9_600..<10_300].max()! < 0.05)
+    }
 }
 
 @Suite("EQ slot continuity")
@@ -145,5 +211,65 @@ struct EQSlotContinuityTests {
         let steady = steps[4_800..<9_600].max()!
         let around = steps[9_600..<10_400].max()!
         #expect(around < steady * 1.2)
+    }
+
+    /// Adding and removing EQ bands live must ramp smoothly without clicking.
+    @Test func addingAndRemovingBandsLiveIsSmooth() {
+        let dsp = ot_dsp_create()!
+        defer { ot_dsp_destroy(dsp) }
+        var signal = (0..<19_200).map { 0.3 * Float(sin(2 * .pi * 100 * Double($0) / 48_000)) }
+        var right = signal
+        var p = ot_params()
+        ot_params_init(&p, 48_000)
+        ot_dsp_publish(dsp, &p)
+        for start in stride(from: 0, to: signal.count, by: 512) {
+            if start == 4_608 {
+                p.band_count = 1
+                ot_params_set_band(&p, 0, ot_biquad_design(OT_FILTER_LOW_SHELF, 48_000, 120, 6, 0.7))
+                ot_dsp_publish(dsp, &p)
+            } else if start == 10_240 {
+                p.band_count = 0
+                ot_dsp_publish(dsp, &p)
+            }
+            let n = min(512, signal.count - start)
+            signal.withUnsafeMutableBufferPointer { l in
+                right.withUnsafeMutableBufferPointer { r in
+                    ot_dsp_process(dsp, l.baseAddress! + start, r.baseAddress! + start, UInt32(n))
+                }
+            }
+        }
+        let steps = zip(signal.dropFirst(), signal).map { abs($0 - $1) }
+        let steady = steps[1_000..<4_000].max()!
+        #expect(steps[4_500..<5_200].max()! < steady * 2.5)
+        #expect(steps[10_100..<10_800].max()! < steady * 2.5)
+    }
+
+    /// Removing a trailing band while keeping an earlier band must fade out after retained bands cleanly.
+    @Test func removingTrailingBandPreservesEarlierBandCascadeSmoothness() {
+        let dsp = ot_dsp_create()!
+        defer { ot_dsp_destroy(dsp) }
+        var signal = (0..<14_400).map { 0.3 * Float(sin(2 * .pi * 120 * Double($0) / 48_000)) }
+        var right = signal
+        var p = ot_params()
+        ot_params_init(&p, 48_000)
+        p.band_count = 2
+        ot_params_set_band(&p, 0, ot_biquad_design(OT_FILTER_LOW_SHELF, 48_000, 150, 6, 0.7))
+        ot_params_set_band(&p, 1, ot_biquad_design(OT_FILTER_PEAK, 48_000, 120, 6, 1.0))
+        ot_dsp_publish(dsp, &p)
+        for start in stride(from: 0, to: signal.count, by: 512) {
+            if start == 7_680 {
+                p.band_count = 1
+                ot_dsp_publish(dsp, &p)
+            }
+            let n = min(512, signal.count - start)
+            signal.withUnsafeMutableBufferPointer { l in
+                right.withUnsafeMutableBufferPointer { r in
+                    ot_dsp_process(dsp, l.baseAddress! + start, r.baseAddress! + start, UInt32(n))
+                }
+            }
+        }
+        let steps = zip(signal.dropFirst(), signal).map { abs($0 - $1) }
+        let steady = steps[2_000..<7_000].max()!
+        #expect(steps[7_500..<8_300].max()! < steady * 1.5)
     }
 }

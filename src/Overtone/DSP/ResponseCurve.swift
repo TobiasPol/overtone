@@ -31,7 +31,9 @@ enum ResponseCurve {
 
     /// Highest gain of the filter cascade across the audible range.
     static func peakGain(bands: [EQBand], sampleRate: Double = displaySampleRate) -> Double {
-        guard bands.contains(where: { !$0.isNeutral }) else { return 0 }
-        return magnitudes(bands: bands, frequencies: frequencies(count: 256), sampleRate: sampleRate).max() ?? 0
+        let active = bands.filter { !$0.isNeutral }
+        guard !active.isEmpty else { return 0 }
+        let freqs = frequencies(count: 256) + active.map { $0.frequency.clamped(to: EQBand.frequencyRange) }
+        return magnitudes(bands: active, frequencies: freqs, sampleRate: sampleRate).max() ?? 0
     }
 }

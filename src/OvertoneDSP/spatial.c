@@ -2,8 +2,14 @@
 #include <string.h>
 #include "dsp_internal.h"
 
+static inline float clamp_range(float v, float lo, float hi, float fallback) {
+    if (!isfinite(v)) return fallback;
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+
 /* Mid/side stereo width with a smoothed width factor. */
 void ot_width_process(float *width, float target, float coef, float *l, float *r, uint32_t n) {
+    target = clamp_range(target, 0.0f, 2.0f, 1.0f);
     float w = *width;
     if (fabsf(w - 1.0f) < 1e-4f && fabsf(target - 1.0f) < 1e-4f) {
         *width = 1.0f;
@@ -34,19 +40,26 @@ void ot_crossfeed_prepare(ot_crossfeed *x, float fs) {
  */
 void ot_crossfeed_process(ot_crossfeed *x, const ot_params *p, float fs,
                           float *l, float *r, uint32_t n) {
-    if (p->crossfeed <= 0.0f) {
+    float raw = clamp_range(p->crossfeed, 0.0f, 1.0f, 0.0f);
+    float target = raw * 0.7f;
+    if (target <= 0.0f && x->level < 1e-4f) {
         x->active = false;
+        x->level = 0.0f;
         return;
     }
     if (!x->active) {
         memset(x->delay, 0, sizeof(x->delay));
         x->lp[0] = x->lp[1] = 0.0f;
+        x->pos = 0;
         x->active = true;
     }
-    float a = 1.0f - expf(-2.0f * (float)M_PI * p->crossfeed_cutoff / fs);
-    float level = p->crossfeed * 0.7f;
-    float norm = 1.0f / (1.0f + level);
+    float cutoff = clamp_range(p->crossfeed_cutoff, 100.0f, fs * 0.45f, 700.0f);
+    float a = 1.0f - expf(-2.0f * (float)M_PI * cutoff / fs);
+    float k = 1.0f - expf(-1.0f / (0.008f * fs));
+    float level = x->level;
     for (uint32_t i = 0; i < n; i++) {
+        level += (target - level) * k;
+        float norm = 1.0f / (1.0f + level);
         float dl = x->delay[0][x->pos], dr = x->delay[1][x->pos];
         x->delay[0][x->pos] = l[i];
         x->delay[1][x->pos] = r[i];
@@ -56,4 +69,5 @@ void ot_crossfeed_process(ot_crossfeed *x, const ot_params *p, float fs,
         l[i] = (l[i] + level * x->lp[1]) * norm;
         r[i] = (r[i] + level * x->lp[0]) * norm;
     }
+    x->level = level;
 }

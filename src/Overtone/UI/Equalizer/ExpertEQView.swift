@@ -3,16 +3,29 @@ import SwiftUI
 /// Fully parametric bands: type, frequency, gain and Q per band.
 struct ExpertEQView: View {
     @Environment(AppState.self) private var state
+    @Environment(AudioEngine.self) private var engine
 
     var body: some View {
         @Bindable var state = state
         let bands = state.equalizer.expert.bands
+        let settings = DSPSettings(equalizer: state.equalizer, correction: state.correction)
+        let effectivePreamp = state.equalizer.autoGain
+            ? ParamsBuilder.preampDB(settings, bands: ParamsBuilder.activeBands(settings), sampleRate: engine.context.sampleRate)
+            : state.equalizer.expert.preamp
         VStack(spacing: 6) {
             HStack(spacing: 8) {
-                Text("Preamp").captionStyle()
+                Text("Preamp")
+                    .captionStyle()
+                    .onTapGesture(count: 2) { state.equalizer.expert.preamp = 0 }
+                    .help("Double-click to reset")
                 Slider(value: $state.equalizer.expert.preamp, in: -24...12).controlSize(.mini)
-                Text("\(Format.gain(state.equalizer.expert.preamp)) dB")
-                    .font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary).frame(width: 52, alignment: .trailing)
+                Text("\(Format.gain(effectivePreamp)) dB")
+                    .font(.system(size: 11).monospacedDigit())
+                    .foregroundStyle(state.equalizer.autoGain ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                    .frame(width: 52, alignment: .trailing)
+                    .help(state.equalizer.autoGain
+                        ? "Effective preamp (manual \(Format.gain(state.equalizer.expert.preamp)) dB, auto-adjusted)"
+                        : "Manual preamp")
                 Toggle("Auto", isOn: $state.equalizer.autoGain)
                     .toggleStyle(.checkbox).controlSize(.small)
                     .help("Automatically lower the preamp so boosts never clip")

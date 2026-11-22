@@ -27,6 +27,7 @@ final class AutoEQCatalog {
     }
 
     func refresh() async {
+        guard state != .loading else { return }
         await download(silently: false)
     }
 
@@ -50,7 +51,10 @@ final class AutoEQCatalog {
         if !silently { state = .loading }
         do {
             let url = AutoEQIndex.baseURL.appendingPathComponent("INDEX.md")
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await URLSession.shared.data(from: url)
+            if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+                throw URLError(.fileDoesNotExist)
+            }
             let markdown = String(decoding: data, as: UTF8.self)
             guard markdown.contains("](./") else { throw URLError(.cannotParseResponse) }
             try? data.write(to: cacheURL, options: .atomic)

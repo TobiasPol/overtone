@@ -51,5 +51,18 @@ struct BiquadTests {
         #expect(ot_biquad_magnitude_db(c, 1_000, fs).isFinite)
         let id = ot_biquad_design(OT_FILTER_PEAK, 0, 1_000, 6, 1)
         #expect(id.b0 == 1 && id.a1 == 0)
+
+        for nanCase in [
+            ot_biquad_design(OT_FILTER_PEAK, .nan, 1_000, 6, 1),
+            ot_biquad_design(OT_FILTER_PEAK, fs, .nan, 6, 1),
+            ot_biquad_design(OT_FILTER_PEAK, fs, 1_000, .nan, 1),
+            ot_biquad_design(OT_FILTER_LOW_SHELF, fs, 1_000, 6, .nan),
+            ot_biquad_design(OT_FILTER_PEAK, fs, 1_000, 6, .infinity),
+        ] {
+            #expect(nanCase.b0.isFinite && nanCase.b1.isFinite && nanCase.b2.isFinite)
+            #expect(nanCase.a1.isFinite && nanCase.a2.isFinite)
+        }
+        #expect(ot_biquad_magnitude_db(c, 1_000, 0).isFinite)
+        #expect(ot_biquad_magnitude_db(c, .nan, fs).isFinite)
     }
 }

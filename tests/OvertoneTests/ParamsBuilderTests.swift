@@ -119,4 +119,44 @@ struct ParamsBuilderTests {
         s.output.maxBoost = 2
         #expect(ParamsBuilder.make(s, context: context).volume == 2)
     }
+
+    @Test func autoGainCatchesNarrowHighQPeak() {
+        var s = DSPSettings()
+        s.equalizer.mode = .expert
+        s.equalizer.expert = ExpertEQ(bands: [EQBand(type: .peak, frequency: 1_234, gain: 12, q: 20)])
+        s.equalizer.autoGain = true
+        let bands = ParamsBuilder.activeBands(s)
+        let preamp = ParamsBuilder.preampDB(s, bands: bands)
+        #expect(preamp <= -11.9)
+    }
+
+    @Test func activeBandsAndSectionsStayAlignedPastMaxBands() {
+        var s = DSPSettings()
+        s.correction = HeadphoneCorrection(
+            isEnabled: true, profileName: "Many", preamp: 0,
+            filters: Array(repeating: EQBand(gain: 0), count: Int(OT_MAX_BANDS))
+        )
+        s.equalizer.mode = .basic
+        s.equalizer.basic.bass = 6
+        #expect(ParamsBuilder.sections(s, sampleRate: 48_000).count == Int(OT_MAX_BANDS))
+        #expect(ParamsBuilder.activeBands(s).isEmpty)
+
+        s.correction.isEnabled = false
+        let sections = ParamsBuilder.sections(s, sampleRate: 48_000)
+        #expect(sections.count == Int(OT_MAX_BANDS))
+        #expect(sections.allSatisfy { $0.b0 == 1 && $0.b1 == 0 && $0.b2 == 0 && $0.a1 == 0 && $0.a2 == 0 })
+        #expect(ParamsBuilder.activeBands(s).isEmpty)
+    }
+
+    @Test @MainActor func spectrumAnalyzerHandlesLowAndZeroSampleRates() {
+        let dsp = DSPCore()
+        let analyzer = SpectrumAnalyzer(dsp: dsp)
+        for rate in [0.0, 8_000, 16_000, 24_000, 32_000, 48_000, 192_000] {
+            analyzer.sampleRate = rate
+            analyzer.setRunning(meters: true, spectrum: true)
+            analyzer.setRunning(meters: true, spectrum: false)
+            analyzer.setRunning(meters: false, spectrum: false)
+        }
+        #expect(analyzer.levels.count == SpectrumAnalyzer.barCount)
+    }
 }

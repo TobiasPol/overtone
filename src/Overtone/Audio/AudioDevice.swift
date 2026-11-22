@@ -1,3 +1,4 @@
+import AudioToolbox
 import CoreAudio
 import Foundation
 
@@ -45,14 +46,24 @@ struct AudioDevice: Identifiable, Hashable, Sendable {
     /// Whether the device exposes a hardware volume control the system volume keys can drive.
     var hasHardwareVolume: Bool {
         let scope = kAudioObjectPropertyScopeOutput
-        if id.isSettable(kAudioDevicePropertyVolumeScalar, scope: scope, element: kAudioObjectPropertyElementMain) {
+        let main = AudioObjectPropertyElement(kAudioObjectPropertyElementMain)
+        if id.isSettable(kAudioHardwareServiceDeviceProperty_VirtualMainVolume, scope: scope, element: main) {
             return true
         }
-        return id.isSettable(kAudioDevicePropertyVolumeScalar, scope: scope, element: 1)
+        if id.isSettable(kAudioDevicePropertyVolumeScalar, scope: scope, element: main) {
+            return true
+        }
+        if id.isSettable(kAudioDevicePropertyVolumeScalar, scope: scope, element: 1) {
+            return true
+        }
+        let pair = id.preferredStereoChannels(channelCount: outputChannels)
+        return id.isSettable(kAudioDevicePropertyVolumeScalar, scope: scope, element: UInt32(pair.left + 1))
+            || id.isSettable(kAudioDevicePropertyVolumeScalar, scope: scope, element: UInt32(pair.right + 1))
     }
 
     static func make(_ id: AudioObjectID) -> AudioDevice? {
-        guard let uid = id.readString(kAudioDevicePropertyDeviceUID) else { return nil }
+        guard id != .unknown, id.read(kAudioDevicePropertyDeviceIsAlive, default: UInt32(1)) != 0,
+              let uid = id.readString(kAudioDevicePropertyDeviceUID) else { return nil }
         let channels = id.channelCount(scope: kAudioObjectPropertyScopeOutput)
         guard channels > 0 else { return nil }
         return AudioDevice(

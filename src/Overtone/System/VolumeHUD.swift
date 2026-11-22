@@ -19,7 +19,14 @@ final class VolumeHUD {
         panel.orderFrontRegardless()
         hideWork?.cancel()
         let work = DispatchWorkItem { [weak panel] in
-            NSAnimationContext.runAnimationGroup { $0.duration = 0.35; panel?.animator().alphaValue = 0 }
+            NSAnimationContext.runAnimationGroup {
+                $0.duration = 0.35
+                panel?.animator().alphaValue = 0
+            } completionHandler: {
+                Task { @MainActor in
+                    if panel?.alphaValue == 0 { panel?.orderOut(nil) }
+                }
+            }
         }
         hideWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.4, execute: work)
@@ -40,7 +47,7 @@ final class VolumeHUD {
     }
 
     private func position(_ panel: NSPanel) {
-        guard let screen = NSScreen.main else { return }
+        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
         let frame = screen.visibleFrame
         let size = panel.frame.size
         panel.setFrameOrigin(NSPoint(x: frame.midX - size.width / 2, y: frame.minY + 120))
@@ -62,7 +69,9 @@ private struct VolumeHUDView: View {
             Image(systemName: model.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                 .font(.system(size: 18, weight: .semibold))
                 .frame(width: 24)
-            ProgressView(value: model.muted ? 0 : min(model.level, model.maximum), total: model.maximum)
+            let total = max(model.maximum, 0.01)
+            let progress = model.muted ? 0 : min(max(model.level, 0), total)
+            ProgressView(value: progress, total: total)
                 .progressViewStyle(.linear)
             Text(model.muted ? "Muted" : "\(Int((model.level * 100).rounded()))%")
                 .font(.system(size: 12, weight: .medium).monospacedDigit())

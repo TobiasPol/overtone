@@ -30,7 +30,10 @@ struct MixerSection: View {
             }
             Spacer(minLength: 0)
             if !state.mixer.apps.isEmpty {
-                Button("Reset All Apps") { state.mixer.apps.removeAll() }
+                let label = apps.count < state.mixer.apps.count
+                    ? "Reset All Apps (\(state.mixer.apps.count))"
+                    : "Reset All Apps"
+                Button(label) { state.mixer.apps.removeAll() }
                     .controlSize(.small)
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
@@ -63,8 +66,11 @@ private struct MixerRow: View {
             }
             Text(setting.isMuted ? "Muted" : Format.percent(setting.volume))
                 .font(.system(size: 10.5).monospacedDigit())
-                .foregroundStyle(setting.volume > 1.001 ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                .foregroundStyle(setting.volume > 1.001 && !setting
+                    .isMuted ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                 .frame(width: 40, alignment: .trailing)
+                .onTapGesture(count: 2) { state.mixer.apps[app.id] = nil }
+                .help("Double-click to reset to 100%")
             Button { update { $0.isMuted.toggle() } } label: {
                 Image(systemName: setting.isMuted ? "speaker.slash.fill" : "speaker.wave.2")
                     .foregroundStyle(setting.isMuted ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
@@ -87,7 +93,12 @@ private struct MixerRow: View {
     private var volume: Binding<Double> {
         Binding(
             get: { setting.volume },
-            set: { value in update { $0.volume = abs(value - 1) < 0.03 ? 1 : value } }
+            set: { value in
+                update {
+                    $0.volume = abs(value - 1) < 0.03 ? 1 : value
+                    if $0.volume > 0 { $0.isMuted = false }
+                }
+            }
         )
     }
 

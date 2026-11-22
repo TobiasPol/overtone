@@ -71,9 +71,9 @@ struct StatusBanner: View {
                 "Overtone needs “System Audio Recording” permission to process sound. Enable it in Privacy & Security, then try again.",
                 primary: ("Open Settings", { NSWorkspace.shared.open(AudioCapturePermission.settingsURL) })
             )
-        case .failed:
+        case let .failed(message):
             banner(
-                "Audio processing stopped. Your sound is playing normally without effects.",
+                "\(message) Your sound is playing normally without effects.",
                 primary: ("Retry", { engine.retry() })
             )
         default:

@@ -54,13 +54,15 @@ final class AudioEngine {
     @ObservationIgnored private var healthRetries = 0
     /// Incremented per launched pipeline so stale health checks can't tear down a newer one.
     @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var isSleeping = false
 
     func activate() {
         monitor.onDevicesChanged = { [weak self] in self?.refreshDevices() }
         monitor.onDefaultOutputChanged = { [weak self] in self?.refreshDevices() }
         monitor.onProcessesChanged = { [weak self] in self?.scheduleProcessSync() }
         monitor.onOutputFormatChanged = { [weak self] in self?.scheduleRebuild() }
-        monitor.onWake = { [weak self] in self?.scheduleRebuild(delay: 1.5) }
+        monitor.onSleep = { [weak self] in self?.handleSleep() }
+        monitor.onWake = { [weak self] in self?.handleWake() }
         monitor.start()
         refreshDevices()
     }
@@ -103,9 +105,9 @@ final class AudioEngine {
     }
 
     func scheduleRebuild(delay: TimeInterval = 0.25) {
-        guard isEnabled, status != .permissionDenied, status != .awaitingPermission else { return }
+        guard isEnabled, !isSleeping, status != .permissionDenied, status != .awaitingPermission else { return }
         rebuildWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.rebuild() }
+        let work = DispatchWorkItem { [weak self] in self?.startWithPermission() }
         rebuildWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
@@ -124,7 +126,10 @@ final class AudioEngine {
         devices = AudioDevice.outputDevices()
         let defaultID = AudioDevice.defaultOutputID()
         let current = devices.first { $0.id == defaultID } ?? AudioDevice.make(defaultID)
-        guard current?.id != outputDevice?.id || current?.uid != outputDevice?.uid else { return }
+        guard current?.id != outputDevice?.id || current?.uid != outputDevice?.uid else {
+            if outputDevice != current { outputDevice = current }
+            return
+        }
         outputDevice = current
         healthRetries = 0
         if let current { outputDeviceChanged?(current) }
@@ -143,30 +148,56 @@ final class AudioEngine {
     // MARK: - Pipeline
 
     private func startWithPermission() {
+        guard isEnabled, !isSleeping else { return }
         switch AudioCapturePermission.state {
         case .authorized:
             rebuild()
         case .denied:
+            teardown()
             status = .permissionDenied
         case .undetermined:
+            teardown()
             status = .awaitingPermission
             AudioCapturePermission.request { [weak self] granted in
-                guard let self, isEnabled else { return }
-                if granted { rebuild() } else { status = .permissionDenied }
+                guard let self, isEnabled, status == .awaitingPermission else { return }
+                guard granted else {
+                    status = .permissionDenied
+                    return
+                }
+                if isSleeping {
+                    status = .starting
+                } else {
+                    rebuild()
+                }
             }
         }
     }
 
-    private func rebuild() {
-        rebuildWork?.cancel()
-        teardown()
+    private func handleSleep() {
+        isSleeping = true
         guard isEnabled else { return }
+        teardown()
+        if status != .permissionDenied, status != .awaitingPermission {
+            status = .starting
+        }
+    }
+
+    private func handleWake() {
+        isSleeping = false
+        scheduleRebuild(delay: 1.5)
+    }
+
+    private func rebuild() {
+        teardown()
+        guard isEnabled, !isSleeping else { return }
+        let previousUID = outputDevice?.uid
         // Re-read the device: its channel layout can change under the same ID (e.g. Bluetooth profiles).
         guard let output = outputDevice.flatMap({ AudioDevice.make($0.id) }) ?? AudioDevice.defaultOutput() else {
             status = .failed("No output device available")
             return
         }
         outputDevice = output
+        if output.uid != previousUID { outputDeviceChanged?(output) }
         // Without our own process object the global tap would capture our output (feedback),
         // so wait for the HAL to register us rather than start unsafely.
         let own = AudioProcessCatalog.ownProcessObject()
@@ -205,6 +236,11 @@ final class AudioEngine {
     }
 
     private func teardown() {
+        rebuildWork?.cancel()
+        rebuildWork = nil
+        processWork?.cancel()
+        processWork = nil
+        generation += 1
         pipeline?.stop()
         pipeline = nil
         monitor.watchOutput(nil)

@@ -25,9 +25,9 @@ struct EQBand: Codable, Hashable, Identifiable, Sendable {
 
     func clamped() -> EQBand {
         var copy = self
-        copy.frequency = frequency.clamped(to: Self.frequencyRange)
-        copy.gain = gain.clamped(to: Self.gainRange)
-        copy.q = q.clamped(to: Self.qRange)
+        copy.frequency = (frequency.isFinite ? frequency : 1_000).clamped(to: Self.frequencyRange)
+        copy.gain = (gain.isFinite ? gain : 0).clamped(to: Self.gainRange)
+        copy.q = (q.isFinite ? q : 1).clamped(to: Self.qRange)
         return copy
     }
 }
@@ -35,6 +35,12 @@ struct EQBand: Codable, Hashable, Identifiable, Sendable {
 extension Comparable {
     func clamped(to range: ClosedRange<Self>) -> Self {
         min(max(self, range.lowerBound), range.upperBound)
+    }
+}
+
+extension FloatingPoint {
+    func clamped(to range: ClosedRange<Self>) -> Self {
+        isNaN ? range.lowerBound : min(max(self, range.lowerBound), range.upperBound)
     }
 }
 

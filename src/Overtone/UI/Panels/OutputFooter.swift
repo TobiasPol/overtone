@@ -27,7 +27,13 @@ struct OutputFooter: View {
                 .foregroundStyle(state.output.volume > 1.001 && !state.output
                     .isMuted ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                 .frame(width: 44, alignment: .trailing)
-                .help(state.output.volume > 1 ? "Volume boost is active" : "Overtone volume")
+                .onTapGesture(count: 2) {
+                    state.output.volume = 1
+                    state.output.isMuted = false
+                }
+                .help(state.output
+                    .volume > 1 ? "Volume boost is active · double-click to reset to 100%" :
+                    "Overtone volume · double-click to reset to 100%")
         }
     }
 
@@ -56,7 +62,11 @@ struct OutputFooter: View {
     private var volumeBinding: Binding<Double> {
         Binding(
             get: { state.output.volume },
-            set: { state.output.volume = abs($0 - 1) < 0.025 ? 1 : $0 }
+            set: {
+                let snapped = abs($0 - 1) < 0.025 ? 1 : $0
+                state.output.volume = snapped
+                if snapped > 0 { state.output.isMuted = false }
+            }
         )
     }
 

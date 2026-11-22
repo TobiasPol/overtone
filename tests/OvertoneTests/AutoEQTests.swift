@@ -72,6 +72,22 @@ struct AutoEQTests {
         ]
         let results = AutoEQIndex.search("sennheiser hd", in: entries)
         #expect(results.map(\.path) == ["b", "a", "c"])
+        #expect(AutoEQIndex.search("hd 650 oratory", in: entries).map(\.path) == ["b"])
         #expect(AutoEQIndex.search("   ", in: entries).isEmpty)
+    }
+
+    @Test func parsesTabsCaseInsensitiveAndAttachedUnits() {
+        let text = """
+        preamp:\t-6.1dB
+        Filter 1:\ton\tpk\tfc 105Hz\tgain -3.5dB\tq 1.2
+        Filter 2: ON PK Fc 1000 Hz Gain 2 dB bw oct 0
+        """
+        let profile = ParametricEQFormat.parse(text)
+        #expect(profile.preamp == -6.1)
+        #expect(profile.bands.count == 2)
+        #expect(profile.bands[0].frequency == 105)
+        #expect(profile.bands[0].gain == -3.5)
+        #expect(profile.bands[0].q == 1.2)
+        #expect(abs(profile.bands[1].q - 0.71) < 0.001)
     }
 }

@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 /// User-triggered actions shared by several views.
 extension AppController {
     func openSettings() {
+        refreshAccessibility()
         SettingsWindowController.shared.show(self)
     }
 
@@ -14,6 +15,7 @@ extension AppController {
     /// Downloads an AutoEQ profile and makes it the active headphone correction.
     func applyAutoEQ(_ entry: AutoEQEntry) async throws {
         let profile = try await autoEQ.fetchProfile(entry)
+        try Task.checkCancellation()
         state.correction = HeadphoneCorrection(
             isEnabled: true, profileName: entry.name, source: entry.detail,
             preamp: profile.preamp, filters: profile.bands
@@ -25,25 +27,37 @@ extension AppController {
         let correction = state.correction
         guard !correction.filters.isEmpty else { return }
         var equalizer = state.equalizer
+        equalizer.isEnabled = true
         equalizer.mode = .expert
         equalizer.expert = ExpertEQ(bands: Array(correction.filters.prefix(ExpertEQ.maxBands)), preamp: correction.preamp)
         equalizer.selectedPreset = correction.profileName
         state.equalizer = equalizer
         state.correction.isEnabled = false
+        state.general.hiddenSections.remove(.equalizer)
+        state.general.selectedSection = .equalizer
     }
 
-    func importCorrectionFile() {
+    func importCorrectionFile() -> String? {
         let url = withPinnedPopover {
             FilePanels.open(types: [.plainText], message: "Choose an AutoEQ / Equalizer APO ParametricEQ.txt file")
         }
-        guard let url, let text = try? String(contentsOf: url, encoding: .utf8) else { return }
-        let profile = ParametricEQFormat.parse(text)
-        guard !profile.bands.isEmpty else { return }
-        state.correction = HeadphoneCorrection(
-            isEnabled: true,
-            profileName: url.deletingPathExtension().lastPathComponent.replacingOccurrences(of: " ParametricEQ", with: ""),
-            source: "Imported file", preamp: profile.preamp, filters: profile.bands
-        )
+        guard let url else { return nil }
+        do {
+            var encoding = String.Encoding.utf8
+            let text = try String(contentsOf: url, usedEncoding: &encoding)
+            let profile = ParametricEQFormat.parse(text)
+            guard !profile.bands.isEmpty else {
+                return "No valid EQ filters found in \(url.lastPathComponent)."
+            }
+            state.correction = HeadphoneCorrection(
+                isEnabled: true,
+                profileName: url.deletingPathExtension().lastPathComponent.replacingOccurrences(of: " ParametricEQ", with: ""),
+                source: "Imported file", preamp: profile.preamp, filters: profile.bands
+            )
+            return nil
+        } catch {
+            return "Couldn't read \(url.lastPathComponent): \(error.localizedDescription)"
+        }
     }
 
     func importPresets() -> String? {

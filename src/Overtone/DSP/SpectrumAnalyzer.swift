@@ -26,6 +26,9 @@ final class SpectrumAnalyzer {
     @ObservationIgnored private var power: [Float]
     @ObservationIgnored private var bands: [Range<Int>] = []
     @ObservationIgnored private var timer: Timer?
+    @ObservationIgnored private var runSpectrum = false
+    @ObservationIgnored private var lastCycleCount: UInt64 = 0
+    @ObservationIgnored private var staleTicks = 0
 
     init(dsp: DSPCore) {
         self.dsp = dsp
@@ -39,33 +42,71 @@ final class SpectrumAnalyzer {
         buildBands()
     }
 
+    deinit {
+        timer?.invalidate()
+        vDSP_destroy_fftsetup(setup)
+    }
+
     /// Screenshot support (`--snapshot`): displays a fixed spectrum and meter level.
     func showSnapshotLevels(_ demo: [Float], meter: Float) {
         levels = demo
         meters = (meter, meter * 0.94)
     }
 
-    func setRunning(_ running: Bool) {
-        guard running != (timer != nil) else { return }
-        timer?.invalidate()
-        timer = nil
-        guard running else {
+    func setRunning(meters: Bool, spectrum: Bool) {
+        runSpectrum = spectrum
+        if !spectrum {
             levels = [Float](repeating: 0, count: Self.barCount)
-            meters = (0, 0)
+            staleTicks = 0
+        }
+        guard meters else {
+            timer?.invalidate()
+            timer = nil
+            levels = [Float](repeating: 0, count: Self.barCount)
+            self.meters = (0, 0)
+            staleTicks = 0
             return
         }
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tick() }
+        guard timer == nil else { return }
+        lastCycleCount = dsp.cycleCount
+        staleTicks = 0
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] timer in
+            MainActor.assumeIsolated {
+                guard let self else { timer.invalidate(); return }
+                self.tick()
+            }
         }
     }
 
     private func tick() {
+        if runSpectrum {
+            let cycles = dsp.cycleCount
+            if cycles != lastCycleCount {
+                lastCycleCount = cycles
+                staleTicks = 0
+                updateSpectrum()
+            } else {
+                staleTicks += 1
+                if staleTicks >= 3 {
+                    levels = levels.map {
+                        let decayed = $0 * 0.86
+                        return decayed < 0.002 ? 0 : decayed
+                    }
+                }
+            }
+        }
+        let peaks = dsp.readPeaks()
+        meters = (meterLevel(peaks.left, previous: meters.left), meterLevel(peaks.right, previous: meters.right))
+    }
+
+    private func updateSpectrum() {
+        guard !bands.isEmpty, sampleRate > 0 else { return }
         _ = dsp.readAnalyzer(into: &samples)
         computePower()
         let binHz = Float(sampleRate) / Float(size)
         var next = levels
         for (index, band) in bands.enumerated() {
-            let peak = band.reduce(Float(0)) { max($0, power[$1]) }
+            let peak = band.isEmpty ? Float(0) : band.reduce(Float(0)) { max($0, power[$1]) }
             let centre = Float(band.lowerBound + band.upperBound) * 0.5 * binHz
             // +3 dB/octave tilt around 1 kHz so typical music reads as roughly flat.
             let db = 10 * log10(max(peak, 1e-12)) + 3 * log2(max(centre, 20) / 1_000)
@@ -73,8 +114,6 @@ final class SpectrumAnalyzer {
             next[index] = target > next[index] ? target : next[index] * 0.86 + target * 0.14
         }
         levels = next
-        let peaks = dsp.readPeaks()
-        meters = (meterLevel(peaks.left, previous: meters.left), meterLevel(peaks.right, previous: meters.right))
     }
 
     private func meterLevel(_ peak: Float, previous: Float) -> Float {
@@ -85,7 +124,9 @@ final class SpectrumAnalyzer {
     /// Hann-windowed real FFT; power[k] is the squared amplitude of bin k.
     private func computePower() {
         let n = size
-        vDSP.multiply(samples, window, result: &samples)
+        samples.withUnsafeMutableBufferPointer { sp in
+            vDSP_vmul(sp.baseAddress!, 1, window, 1, sp.baseAddress!, 1, vDSP_Length(n))
+        }
         real.withUnsafeMutableBufferPointer { rp in
             imag.withUnsafeMutableBufferPointer { ip in
                 var split = DSPSplitComplex(realp: rp.baseAddress!, imagp: ip.baseAddress!)
@@ -100,15 +141,23 @@ final class SpectrumAnalyzer {
         }
         // zrip output is 2x the DFT; a Hann window halves amplitude: A = sqrt(p) * 2 / N.
         var scale = Float(4) / Float(n * n)
-        vDSP_vsmul(power, 1, &scale, &power, 1, vDSP_Length(n / 2))
+        power.withUnsafeMutableBufferPointer { pp in
+            vDSP_vsmul(pp.baseAddress!, 1, &scale, pp.baseAddress!, 1, vDSP_Length(n / 2))
+        }
     }
 
     private func buildBands() {
+        guard sampleRate > 0 else {
+            bands = []
+            return
+        }
+        let maxBin = size / 2
         let binHz = sampleRate / Double(size)
         let edges = ResponseCurve.frequencies(count: Self.barCount + 1)
         bands = (0..<Self.barCount).map { i in
-            let lo = max(1, Int(edges[i] / binHz))
-            let hi = min(size / 2, max(lo + 1, Int(edges[i + 1] / binHz)))
+            let lo = min(maxBin, max(1, Int(edges[i] / binHz)))
+            if lo >= maxBin { return maxBin..<maxBin }
+            let hi = min(maxBin, max(lo + 1, Int(edges[i + 1] / binHz)))
             return lo..<hi
         }
     }

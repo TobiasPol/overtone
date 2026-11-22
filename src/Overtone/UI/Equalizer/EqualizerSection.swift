@@ -3,6 +3,7 @@ import SwiftUI
 struct EqualizerSection: View {
     @Environment(AppState.self) private var state
     @State private var isSavingPreset = false
+    @State private var importError: String?
 
     var body: some View {
         @Bindable var state = state
@@ -10,6 +11,14 @@ struct EqualizerSection: View {
             EQGraphView()
             if isSavingPreset {
                 PresetSaveBar(isPresented: $isSavingPreset)
+            } else if let message = importError {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Text(message).font(.system(size: 11)).lineLimit(1).truncationMode(.tail)
+                    Spacer(minLength: 4)
+                    Button("Dismiss") { importError = nil }.controlSize(.small)
+                }
+                .help(message)
             } else {
                 HStack(spacing: 8) {
                     Toggle("Equalizer", isOn: $state.equalizer.isEnabled)
@@ -20,7 +29,7 @@ struct EqualizerSection: View {
                     }
                     .pickerStyle(.segmented).labelsHidden().frame(width: 196)
                     Spacer(minLength: 0)
-                    PresetMenu(isSaving: $isSavingPreset)
+                    PresetMenu(isSaving: $isSavingPreset, importError: $importError)
                 }
             }
             Group {
@@ -78,11 +87,14 @@ struct AdvancedEQView: View {
 
     private func column(_ label: String, value: Binding<Double>) -> some View {
         VStack(spacing: 4) {
-            Text(String(format: "%+.1f", value.wrappedValue))
+            Text(Format.gain(value.wrappedValue))
                 .font(.system(size: 8.5).monospacedDigit())
                 .foregroundStyle(abs(value.wrappedValue) < 0.05 ? .tertiary : .secondary)
             VerticalSlider(value: value, range: AdvancedEQ.range)
-            Text(label).font(.system(size: 9.5, weight: .medium))
+            Text(label)
+                .font(.system(size: 9.5, weight: .medium))
+                .onTapGesture(count: 2) { value.wrappedValue = 0 }
+                .help("Double-click to reset")
         }
         .frame(maxWidth: .infinity)
     }

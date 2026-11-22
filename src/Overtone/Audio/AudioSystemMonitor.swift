@@ -8,11 +8,19 @@ final class AudioSystemMonitor {
     var onDefaultOutputChanged: (() -> Void)?
     var onProcessesChanged: (() -> Void)?
     var onOutputFormatChanged: (() -> Void)?
+    var onSleep: (() -> Void)?
     var onWake: (() -> Void)?
 
     private var systemListeners: [AudioPropertyListener] = []
     private var outputListeners: [AudioPropertyListener] = []
+    private var sleepObserver: NSObjectProtocol?
     private var wakeObserver: NSObjectProtocol?
+
+    deinit {
+        let nc = NSWorkspace.shared.notificationCenter
+        if let sleepObserver { nc.removeObserver(sleepObserver) }
+        if let wakeObserver { nc.removeObserver(wakeObserver) }
+    }
 
     func start() {
         systemListeners = [
@@ -20,7 +28,13 @@ final class AudioSystemMonitor {
             listen(.system, kAudioHardwarePropertyDefaultOutputDevice) { $0.onDefaultOutputChanged?() },
             listen(.system, kAudioHardwarePropertyProcessObjectList) { $0.onProcessesChanged?() },
         ].compactMap(\.self)
-        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+        let nc = NSWorkspace.shared.notificationCenter
+        sleepObserver = nc.addObserver(
+            forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.onSleep?() }
+        }
+        wakeObserver = nc.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.onWake?() }
@@ -35,6 +49,9 @@ final class AudioSystemMonitor {
             listen(device, kAudioDevicePropertyNominalSampleRate) { $0.onOutputFormatChanged?() },
             listen(device, kAudioDevicePropertyDeviceIsAlive) { $0.onOutputFormatChanged?() },
             listen(device, kAudioDevicePropertyStreamConfiguration, scope: kAudioObjectPropertyScopeOutput) {
+                $0.onOutputFormatChanged?()
+            },
+            listen(device, kAudioDevicePropertyPreferredChannelsForStereo, scope: kAudioObjectPropertyScopeOutput) {
                 $0.onOutputFormatChanged?()
             },
         ].compactMap(\.self)

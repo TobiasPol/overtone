@@ -6,18 +6,29 @@ struct HeadphonesSection: View {
     @Environment(AutoEQCatalog.self) private var catalog
     @Environment(AppController.self) private var controller
     @State private var applying: AutoEQEntry.ID?
+    @State private var applyTask: Task<Void, Never>?
     @State private var error: String?
 
     var body: some View {
         @Bindable var catalog = catalog
         VStack(spacing: 10) {
             ActiveCorrectionCard()
-            TextField("Search headphones (e.g. HD 650, AirPods Pro)", text: $catalog.query)
-                .textFieldStyle(.roundedBorder)
+            HStack(spacing: 6) {
+                TextField("Search headphones (e.g. HD 650, AirPods Pro)", text: $catalog.query)
+                    .textFieldStyle(.roundedBorder)
+                if !catalog.query.isEmpty {
+                    Button { catalog.query = "" } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Clear search")
+                }
+            }
             results
             footer
         }
         .task { await catalog.loadIfNeeded() }
+        .onDisappear { applyTask?.cancel() }
     }
 
     @ViewBuilder
@@ -81,10 +92,10 @@ struct HeadphonesSection: View {
 
     private var footer: some View {
         HStack {
-            Button("Import File…") { controller.importCorrectionFile() }
+            Button("Import File…") { error = controller.importCorrectionFile() }
             Spacer()
             if let error {
-                Text(error).font(.system(size: 10)).foregroundStyle(.orange).lineLimit(1)
+                Text(error).font(.system(size: 10)).foregroundStyle(.orange).lineLimit(1).help(error)
             } else {
                 Link("Data: AutoEQ project", destination: URL(string: "https://github.com/jaakkopasanen/AutoEq")!)
                     .font(.system(size: 10))
@@ -94,15 +105,19 @@ struct HeadphonesSection: View {
     }
 
     private func apply(_ entry: AutoEQEntry) {
+        applyTask?.cancel()
         applying = entry.id
         error = nil
-        Task {
+        applyTask = Task {
             do {
                 try await controller.applyAutoEQ(entry)
             } catch {
+                guard !Task.isCancelled, applying == entry.id else { return }
                 self.error = "Couldn't download \(entry.name)"
             }
-            applying = nil
+            if !Task.isCancelled && applying == entry.id {
+                applying = nil
+            }
         }
     }
 }
@@ -114,15 +129,18 @@ private struct ActiveCorrectionCard: View {
     var body: some View {
         @Bindable var state = state
         if let name = state.correction.profileName, !state.correction.filters.isEmpty {
+            let source = (state.correction.source ?? "").isEmpty ? nil : state.correction.source
+            let detail = [
+                source,
+                "\(state.correction.filters.count) filters",
+                "preamp \(Format.gain(state.correction.preamp)) dB",
+            ].compactMap(\.self).joined(separator: " · ")
             SectionCard(title: "Headphone Correction", systemImage: "headphones") {
                 Toggle("Correction", isOn: $state.correction.isEnabled).toggleStyle(.switch).controlSize(.mini).labelsHidden()
             } content: {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(name).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                    Text(
-                        "\(state.correction.source ?? "") · \(state.correction.filters.count) filters · preamp \(Format.gain(state.correction.preamp)) dB"
-                    )
-                    .captionStyle().lineLimit(1)
+                    Text(detail).captionStyle().lineLimit(1)
                 }
                 HStack {
                     Button("Edit in Expert EQ") { controller.editCorrectionInExpertEQ() }

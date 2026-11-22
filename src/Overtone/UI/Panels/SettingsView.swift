@@ -21,8 +21,7 @@ private struct GeneralSettingsTab: View {
         @Bindable var state = state
         Form {
             Section {
-                Toggle("Open Overtone at login", isOn: $launchAtLogin)
-                    .onChange(of: launchAtLogin) { _, enabled in setLaunchAtLogin(enabled) }
+                Toggle("Open Overtone at login", isOn: Binding(get: { launchAtLogin }, set: { setLaunchAtLogin($0) }))
                 if let launchError {
                     Text(launchError).font(.caption).foregroundStyle(.orange)
                 }
@@ -56,12 +55,17 @@ private struct GeneralSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear { launchAtLogin = LaunchAtLogin.isEnabled }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            launchAtLogin = LaunchAtLogin.isEnabled
+        }
     }
 
     private func setLaunchAtLogin(_ enabled: Bool) {
         do {
             try LaunchAtLogin.set(enabled)
             launchError = nil
+            launchAtLogin = enabled
         } catch {
             launchError = error.localizedDescription
             launchAtLogin = LaunchAtLogin.isEnabled
@@ -113,6 +117,10 @@ private struct InterfaceSettingsTab: View {
                     state.general.hiddenSections.remove(section)
                 } else if state.general.hiddenSections.count < AppSection.allCases.count - 1 {
                     state.general.hiddenSections.insert(section)
+                    if state.general.selectedSection == section,
+                       let fallback = AppSection.allCases.first(where: { !state.general.hiddenSections.contains($0) }) {
+                        state.general.selectedSection = fallback
+                    }
                 }
             }
         )
