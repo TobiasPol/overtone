@@ -16,12 +16,13 @@
 #define OT_ALLPASS_MAX 2600
 #define OT_PREDELAY_MAX 38400  /* 200 ms at 192 kHz */
 
-typedef struct { float z1, z2; } ot_bq_state;
+typedef struct { double z1, z2; } ot_bq_state;
 
 typedef struct {
     ot_biquad_coeffs cur[OT_MAX_BANDS];
     ot_bq_state state[2][OT_MAX_BANDS];
     uint32_t count;
+    bool primed;
 } ot_eq;
 
 typedef struct {
@@ -29,6 +30,7 @@ typedef struct {
     float delay[2][OT_XFEED_DELAY_MAX];
     uint32_t pos;
     uint32_t delay_len;
+    float level;
     bool active;
 } ot_crossfeed;
 
@@ -74,7 +76,7 @@ typedef struct {
     uint32_t front;
 } ot_param_box;
 
-typedef struct { const float *left, *right; } ot_plugin_input;
+typedef struct { const float *left, *right; uint32_t frames; } ot_plugin_input;
 
 typedef struct {
     float preamp, vol_l, vol_r, width;
@@ -101,6 +103,7 @@ struct ot_dsp {
     _Atomic uint64_t cycles;
     float left[OT_MAX_CHUNK], right[OT_MAX_CHUNK];
     float scratch_l[OT_MAX_CHUNK], scratch_r[OT_MAX_CHUNK];
+    float plugin_in_l[OT_MAX_CHUNK], plugin_in_r[OT_MAX_CHUNK];
 };
 
 /* params.c */

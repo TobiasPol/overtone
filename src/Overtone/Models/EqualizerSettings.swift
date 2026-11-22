@@ -26,12 +26,30 @@ struct BasicEQ: Codable, Equatable, Sendable {
 
 /// Fixed ten-band octave graphic equalizer.
 struct AdvancedEQ: Codable, Equatable, Sendable {
-    var gains: [Double] = Array(repeating: 0, count: AdvancedEQ.frequencies.count)
-    var preamp = 0.0
+    var gains: [Double]
+    var preamp: Double
 
     static let frequencies: [Double] = [32, 64, 125, 250, 500, 1_000, 2_000, 4_000, 8_000, 16_000]
     static let range = -12.0...12.0
     static let q = 1.41 // one-octave bandwidth
+
+    init(gains: [Double] = Array(repeating: 0, count: AdvancedEQ.frequencies.count), preamp: Double = 0) {
+        self.gains = Self.normalizedGains(gains)
+        self.preamp = (preamp.isFinite ? preamp : 0).clamped(to: Self.range)
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let rawGains = try c.decodeIfPresent([Double].self, forKey: .gains) ?? []
+        let rawPreamp = try c.decodeIfPresent(Double.self, forKey: .preamp) ?? 0
+        self.init(gains: rawGains, preamp: rawPreamp)
+    }
+
+    private static func normalizedGains(_ raw: [Double]) -> [Double] {
+        let count = frequencies.count
+        let clamped = raw.prefix(count).map { ($0.isFinite ? $0 : 0).clamped(to: range) }
+        return clamped + Array(repeating: 0, count: max(0, count - clamped.count))
+    }
 
     var bands: [EQBand] {
         zip(Self.frequencies, gains).map { EQBand(type: .peak, frequency: $0, gain: $1, q: Self.q) }
@@ -57,7 +75,8 @@ struct ExpertEQ: Codable, Equatable, Sendable {
 
     /// A sensible new band placed in the widest gap between existing bands.
     func suggestedBand() -> EQBand {
-        let logs = ([20.0, 20_000] + bands.map(\.frequency)).map(log10).sorted()
+        let valid = bands.map(\.frequency).filter(\.isFinite).map { $0.clamped(to: EQBand.frequencyRange) }
+        let logs = ([20.0, 20_000] + valid).map(log10).sorted()
         let gap = zip(logs, logs.dropFirst()).max { ($0.1 - $0.0) < ($1.1 - $1.0) }
         let centre = gap.map { pow(10, ($0.0 + $0.1) / 2) } ?? 1_000
         return EQBand(type: .peak, frequency: centre.rounded(), gain: 0, q: 1)

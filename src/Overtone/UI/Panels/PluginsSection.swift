@@ -48,7 +48,15 @@ private struct PluginRow: View {
             Text("\(index + 1)").font(.system(size: 11, weight: .bold).monospacedDigit()).foregroundStyle(.tertiary)
                 .frame(width: 14)
             VStack(alignment: .leading, spacing: 1) {
-                Text(plugin.config.name).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                HStack(spacing: 4) {
+                    Text(plugin.config.name).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                    if !plugin.isInitialized {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.orange)
+                            .help("Failed to initialize at current sample rate")
+                    }
+                }
                 Text(plugin.config.manufacturerName).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 4)

@@ -17,8 +17,10 @@ final class AppController {
     @ObservationIgnored private let volumeKeys = VolumeKeyInterceptor()
     @ObservationIgnored private let hud = VolumeHUD()
     @ObservationIgnored private var currentDeviceUID: String?
-    @ObservationIgnored private var outputHasHardwareVolume = true
+    private(set) var outputHasHardwareVolume = true
+    private(set) var isAccessibilityTrusted = VolumeKeyInterceptor.isTrusted
     @ObservationIgnored private var mixerKeys: Set<String> = []
+    @ObservationIgnored private var activeObserver: NSObjectProtocol?
     /// Lets views keep the popover open while a modal panel is showing.
     @ObservationIgnored var pinPopover: ((Bool) -> Void)?
 
@@ -28,6 +30,10 @@ final class AppController {
         plugins = PluginHost(dsp: engine.dsp)
         analyzer = SpectrumAnalyzer(dsp: engine.dsp)
         autoPreset = AutoPresetController(state: state, dsp: engine.dsp)
+    }
+
+    deinit {
+        if let activeObserver { NotificationCenter.default.removeObserver(activeObserver) }
     }
 
     func start() {
@@ -40,12 +46,21 @@ final class AppController {
             guard let self else { return }
             state.plugins = plugins.configs
         }
+        PluginWindowController.shared.onWindowClosed = { [weak self] in
+            guard let self else { return }
+            state.plugins = plugins.configs
+        }
+        activeObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshAccessibility() }
+        }
         let savedPlugins = state.plugins
         Task { await plugins.restore(savedPlugins) }
-        volumeKeys.handler = { [weak self] key in self?.handleVolumeKey(key) }
+        volumeKeys.handler = { [weak self] key, fine in self?.handleVolumeKey(key, fine: fine) }
         engine.setEnabled(state.isEnabled)
         autoPreset.update()
-        updateVolumeKeyCapture()
+        refreshAccessibility()
     }
 
     /// Restores default settings (keeping loaded plugins) and pushes them to the engine.
@@ -64,13 +79,16 @@ final class AppController {
     }
 
     func willTerminate() {
+        volumeKeys.stop()
         state.plugins = plugins.configs
         store.save(state.persisted)
         engine.setEnabled(false)
+        plugins.shutdown()
     }
 
     func setPopoverVisible(_ visible: Bool) {
         isPopoverVisible = visible
+        if visible { refreshAccessibility() }
         updateAnalyzer()
         engine.publishParameters()
         if !visible {
@@ -112,6 +130,10 @@ final class AppController {
             updateAnalyzer()
             updateVolumeKeyCapture()
         case .dsp:
+            if state.output.volume > state.output.maxBoost {
+                state.output.volume = state.output.maxBoost
+                return
+            }
             autoPreset.equalizerDidChange()
             engine.publishParameters()
             if let currentDeviceUID { state.storeProfile(for: currentDeviceUID) }
@@ -126,6 +148,9 @@ final class AppController {
         case .general:
             updateAnalyzer()
             engine.publishParameters()
+            if state.general.rememberPerDevice, let currentDeviceUID {
+                state.storeProfile(for: currentDeviceUID)
+            }
         case .autoPreset:
             autoPreset.update()
             engine.publishParameters()
@@ -149,19 +174,32 @@ final class AppController {
     }
 
     private func updateAnalyzer() {
-        analyzer.setRunning(analyzerWanted)
+        analyzer.setRunning(meters: isPopoverVisible && state.isEnabled, spectrum: analyzerWanted)
     }
 
     private func outputDeviceChanged(_ device: AudioDevice) {
         autoPreset.suspendForDeviceChange() // stores the user's own EQ with the old device
+        if let previous = currentDeviceUID, previous != device.uid {
+            state.storeProfile(for: previous)
+        }
+        let isInitial = currentDeviceUID == nil
         currentDeviceUID = device.uid
         outputHasHardwareVolume = device.hasHardwareVolume
-        state.loadProfile(for: device.uid)
+        if state.general.rememberPerDevice, !state.loadProfile(for: device.uid) {
+            if !isInitial { state.resetCorrectionForNewDevice() }
+            state.storeProfile(for: device.uid)
+        }
         autoPreset.resumeAfterDeviceChange()
+        engine.publishParameters()
         updateVolumeKeyCapture()
     }
 
     // MARK: - Software volume keys
+
+    func refreshAccessibility() {
+        isAccessibilityTrusted = VolumeKeyInterceptor.isTrusted
+        updateVolumeKeyCapture()
+    }
 
     private func updateVolumeKeyCapture() {
         let wanted = state.output.softwareVolumeKeys && state.isEnabled && !outputHasHardwareVolume
@@ -173,22 +211,23 @@ final class AppController {
     }
 
     var volumeKeysNeedAccessibility: Bool {
-        state.output.softwareVolumeKeys && !outputHasHardwareVolume && !VolumeKeyInterceptor.isTrusted
+        state.output.softwareVolumeKeys && !outputHasHardwareVolume && !isAccessibilityTrusted
     }
 
     func requestAccessibility() {
         VolumeKeyInterceptor.requestTrust()
     }
 
-    private func handleVolumeKey(_ key: VolumeKeyInterceptor.Key) {
+    private func handleVolumeKey(_ key: VolumeKeyInterceptor.Key, fine: Bool) {
         var output = state.output
-        let step = 1.0 / 16
+        let step = fine ? 1.0 / 64 : 1.0 / 16
         switch key {
         case .up:
             output.volume = min(output.maxBoost, output.volume + step)
             output.isMuted = false
         case .down:
             output.volume = max(0, output.volume - step)
+            if output.volume > 0 { output.isMuted = false }
         case .mute:
             output.isMuted.toggle()
         }

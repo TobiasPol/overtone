@@ -47,12 +47,18 @@ final class ProcessTap {
 
     /// Changes which processes the tap includes (or excludes) without rebuilding the device.
     func update(processes: [AudioObjectID]) throws {
-        guard processes != description.processes else { return }
+        let previous = description.processes
+        guard processes != previous else { return }
         description.processes = processes
         var address = AudioObjectID.address(kAudioTapPropertyDescription)
         var ref: UnsafeMutableRawPointer? = Unmanaged.passUnretained(description).toOpaque()
         let size = UInt32(MemoryLayout<UnsafeMutableRawPointer?>.size)
-        try checkAudio(AudioObjectSetPropertyData(id, &address, 0, nil, size, &ref), "Updating tap")
+        do {
+            try checkAudio(AudioObjectSetPropertyData(id, &address, 0, nil, size, &ref), "Updating tap")
+        } catch {
+            description.processes = previous
+            throw error
+        }
     }
 
     func destroy() {

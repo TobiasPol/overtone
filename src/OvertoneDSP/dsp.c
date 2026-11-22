@@ -24,6 +24,7 @@ ot_dsp *ot_dsp_create(void) {
 
 void ot_dsp_destroy(ot_dsp *dsp) {
     if (dsp == NULL) return;
+    ot_plugin_chain_free(atomic_load(&dsp->chain));
     ot_reverb_free(&dsp->reverb);
     free(dsp);
 }
@@ -35,6 +36,14 @@ void ot_dsp_prepare(ot_dsp *dsp, float sample_rate) {
     ot_crossfeed_prepare(&dsp->xfeed, fs);
     ot_reverb_prepare(&dsp->reverb, fs);
     ot_limiter_prepare(&dsp->limiter, fs);
+    memset(dsp->analyzer.data, 0, sizeof(dsp->analyzer.data));
+    atomic_store_explicit(&dsp->analyzer.write, 0, memory_order_relaxed);
+    memset(dsp->detector.data, 0, sizeof(dsp->detector.data));
+    atomic_store_explicit(&dsp->detector.write, 0, memory_order_relaxed);
+    atomic_store_explicit(&dsp->detector.read, 0, memory_order_relaxed);
+    atomic_store_explicit(&dsp->peak_l, 0.0f, memory_order_relaxed);
+    atomic_store_explicit(&dsp->peak_r, 0.0f, memory_order_relaxed);
+    dsp->plugin_sample_time = 0.0;
     dsp->smooth.coef = 1.0f - expf(-1.0f / (0.008f * fs)); /* ~8 ms parameter glide */
     dsp->smooth.primed = false;
 }
@@ -85,6 +94,12 @@ static void apply_volume(ot_smoothers *s, const ot_params *p, float *l, float *r
     s->vol_r = vr;
 }
 
+static void scrub_nonfinite(float *x, uint32_t n) {
+    for (uint32_t i = 0; i < n; i++) {
+        if (!isfinite(x[i])) x[i] = 0.0f;
+    }
+}
+
 static float sanitize(float *x, uint32_t n) {
     float peak = 0.0f;
     for (uint32_t i = 0; i < n; i++) {
@@ -98,12 +113,14 @@ static float sanitize(float *x, uint32_t n) {
 }
 
 static void store_peak(_Atomic float *slot, float peak) {
-    if (peak > atomic_load_explicit(slot, memory_order_relaxed)) {
-        atomic_store_explicit(slot, peak, memory_order_relaxed);
+    float cur = atomic_load_explicit(slot, memory_order_relaxed);
+    while (peak > cur && !atomic_compare_exchange_weak_explicit(
+               slot, &cur, peak, memory_order_relaxed, memory_order_relaxed)) {
     }
 }
 
 void ot_dsp_run_chain(ot_dsp *d, const ot_params *p, float *l, float *r, uint32_t n) {
+    if (n == 0) return;
     ot_smoothers *s = &d->smooth;
     prime(s, p);
     if (p->detector_enabled) {
@@ -115,6 +132,8 @@ void ot_dsp_run_chain(ot_dsp *d, const ot_params *p, float *l, float *r, uint32_
     ot_crossfeed_process(&d->xfeed, p, d->sample_rate, l, r, n);
     ot_reverb_process(&d->reverb, p, d->sample_rate, l, r, n);
     ot_plugins_process(d, l, r, n);
+    scrub_nonfinite(l, n);
+    scrub_nonfinite(r, n);
     if (p->analyzer_enabled) {
         ot_ring_write(&d->analyzer, l, r, n);
     }

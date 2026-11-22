@@ -58,9 +58,12 @@ final class PresetStore {
         let data = try Data(contentsOf: file)
         let imported: [EQPreset]
         if let list = try? JSONDecoder().decode([EQPreset].self, from: data) {
-            imported = list
+            let sanitized = list.compactMap(Self.validated)
+            guard !sanitized.isEmpty else { throw ImportError.unrecognized }
+            imported = sanitized
         } else if let single = try? JSONDecoder().decode(EQPreset.self, from: data) {
-            imported = [single]
+            guard let sanitized = Self.validated(single) else { throw ImportError.unrecognized }
+            imported = [sanitized]
         } else if let text = String(data: data, encoding: .utf8) {
             let profile = ParametricEQFormat.parse(text)
             guard !profile.bands.isEmpty else { throw ImportError.unrecognized }
@@ -83,6 +86,29 @@ final class PresetStore {
     enum ImportError: LocalizedError {
         case unrecognized
         var errorDescription: String? { "The file isn't an Overtone preset or an Equalizer APO parametric EQ." }
+    }
+
+    private static func validated(_ preset: EQPreset) -> EQPreset? {
+        var copy = preset
+        let trimmed = copy.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        copy.name = trimmed.isEmpty ? "Untitled" : trimmed
+        switch copy.mode {
+        case .basic:
+            guard var b = copy.basic else { return nil }
+            b.bass = (b.bass.isFinite ? b.bass : 0).clamped(to: BasicEQ.range)
+            b.mid = (b.mid.isFinite ? b.mid : 0).clamped(to: BasicEQ.range)
+            b.treble = (b.treble.isFinite ? b.treble : 0).clamped(to: BasicEQ.range)
+            copy.basic = b
+        case .advanced:
+            guard let a = copy.advanced else { return nil }
+            copy.advanced = AdvancedEQ(gains: a.gains, preamp: a.preamp)
+        case .expert:
+            guard var e = copy.expert else { return nil }
+            e.bands = Array(e.bands.prefix(ExpertEQ.maxBands)).map { $0.clamped() }
+            e.preamp = (e.preamp.isFinite ? e.preamp : 0).clamped(to: -24...12)
+            copy.expert = e
+        }
+        return copy
     }
 
     private func persist() {

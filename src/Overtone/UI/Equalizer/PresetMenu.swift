@@ -8,7 +8,7 @@ struct PresetMenu: View {
     @Environment(AutoPresetController.self) private var autoPreset
     @Environment(MusicTypeDetector.self) private var detector
     @Binding var isSaving: Bool
-    @State private var importError: String?
+    @Binding var importError: String?
 
     var body: some View {
         @Bindable var state = state
@@ -20,17 +20,18 @@ struct PresetMenu: View {
             }
             Divider()
             Section("Built-in") {
-                ForEach(presets.builtIn(for: mode)) { preset in button(for: preset) }
+                ForEach(presets.builtIn(for: mode)) { preset in button(for: preset, isUser: false) }
             }
             let user = presets.user(for: mode)
             if !user.isEmpty {
                 Section("My Presets") {
-                    ForEach(user) { preset in button(for: preset) }
+                    ForEach(user) { preset in button(for: preset, isUser: true) }
                 }
             }
             Divider()
             Button("Save Preset…") { isSaving = true }
-            if let name = state.equalizer.selectedPreset, presets.isUserPreset(named: name, mode: mode) {
+            if let name = state.equalizer.selectedPreset, presets.isUserPreset(named: name, mode: mode),
+               !presets.builtIn(for: mode).contains(where: { $0.name == name && $0.matches(state.equalizer) }) {
                 Button("Delete “\(name)”", role: .destructive) {
                     presets.delete(named: name, mode: mode)
                     state.equalizer.selectedPreset = nil
@@ -51,18 +52,13 @@ struct PresetMenu: View {
         .menuStyle(.borderlessButton)
         .fixedSize()
         .help(state.autoPreset.isEnabled ? "Auto preset: \(autoStatus)" : "Presets")
-        .alert("Import failed", isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(importError ?? "")
-        }
     }
 
-    private func button(for preset: EQPreset) -> some View {
+    private func button(for preset: EQPreset, isUser: Bool) -> some View {
         Button {
             preset.apply(to: &state.equalizer)
         } label: {
-            if state.equalizer.selectedPreset == preset.name {
+            if isSelected(preset, isUser: isUser) {
                 Label(preset.name, systemImage: "checkmark")
             } else {
                 Text(preset.name)
@@ -83,12 +79,29 @@ struct PresetMenu: View {
         return "\(detection.label) · \(detection.detail)"
     }
 
+    private func isSelected(_ preset: EQPreset, isUser: Bool) -> Bool {
+        guard state.equalizer.selectedPreset == preset.name else { return false }
+        let mode = state.equalizer.mode
+        if presets.user(for: mode).contains(where: { $0.name == preset.name && $0.matches(state.equalizer) }) {
+            return isUser
+        }
+        if presets.builtIn(for: mode).contains(where: { $0.name == preset.name && $0.matches(state.equalizer) }) {
+            return !isUser
+        }
+        return isUser || !presets.isUserPreset(named: preset.name, mode: mode)
+    }
+
     private var title: String {
         let mode = state.equalizer.mode
-        guard let name = state.equalizer.selectedPreset else { return "Custom" }
         let all = presets.builtIn(for: mode) + presets.user(for: mode)
-        guard let preset = all.last(where: { $0.name == name }) else { return name }
-        return preset.matches(state.equalizer) ? name : "\(name) (edited)"
+        guard let name = state.equalizer.selectedPreset else {
+            if let flat = all.first(where: { $0.name == BuiltInPresets.flatName && $0.matches(state.equalizer) }) {
+                return flat.name
+            }
+            return "Custom"
+        }
+        if all.contains(where: { $0.name == name && $0.matches(state.equalizer) }) { return name }
+        return all.contains(where: { $0.name == name }) ? "\(name) (edited)" : name
     }
 }
 
@@ -106,7 +119,7 @@ struct PresetSaveBar: View {
                 .textFieldStyle(.roundedBorder)
                 .focused($focused)
                 .onSubmit(save)
-            Button("Cancel") { isPresented = false }
+            Button("Cancel") { isPresented = false }.keyboardShortcut(.cancelAction)
             Button("Save", action: save)
                 .keyboardShortcut(.defaultAction)
                 .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)

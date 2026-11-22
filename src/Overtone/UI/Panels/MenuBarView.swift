@@ -11,9 +11,12 @@ struct MenuBarView: View {
         VStack(spacing: 0) {
             HeaderView()
             StatusBanner()
-            SectionTabs(selection: $state.general.selectedSection, hidden: state.general.hiddenSections)
-                .padding(.horizontal, 14)
-                .padding(.bottom, 10)
+            SectionTabs(
+                selection: Binding(get: { visibleSelection }, set: { state.general.selectedSection = $0 }),
+                hidden: state.general.hiddenSections
+            )
+            .padding(.horizontal, 14)
+            .padding(.bottom, 10)
             sectionContent
                 .padding(.horizontal, 14)
                 .frame(height: Self.contentHeight, alignment: .top)

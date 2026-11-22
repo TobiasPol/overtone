@@ -27,6 +27,9 @@ final class PluginHost {
     @ObservationIgnored private var sampleRate = 48_000.0
     /// Units whose chain couldn't be retired in time; never released, so the IO thread can't touch freed memory.
     @ObservationIgnored private var graveyard: [HostedPlugin] = []
+    @ObservationIgnored private var pendingRestore: [PluginSlotConfig] = []
+    @ObservationIgnored private var isRestoring = false
+    @ObservationIgnored private var retireTimers: [UUID: DispatchWorkItem] = [:]
 
     init(dsp: DSPCore) {
         self.dsp = dsp
@@ -34,7 +37,7 @@ final class PluginHost {
 
     var configs: [PluginSlotConfig] {
         plugins.forEach { $0.captureState() }
-        return plugins.map(\.config) + unavailable
+        return plugins.map(\.config) + unavailable + pendingRestore
     }
 
     func scanComponents() {
@@ -54,9 +57,8 @@ final class PluginHost {
     }
 
     func restore(_ configs: [PluginSlotConfig]) async {
-        for config in configs {
-            await insert(config)
-        }
+        pendingRestore.append(contentsOf: configs)
+        await drainPendingRestore()
     }
 
     func add(_ component: PluginComponent) async {
@@ -64,11 +66,14 @@ final class PluginHost {
             lastError = "The chain is full (\(OT_MAX_PLUGINS) plugins)."
             return
         }
-        await insert(PluginSlotConfig(
-            componentType: component.type, componentSubType: component.subType,
-            manufacturer: component.manufacturer, name: component.name,
-            manufacturerName: component.manufacturerName
-        ))
+        await insert(
+            PluginSlotConfig(
+                componentType: component.type, componentSubType: component.subType,
+                manufacturer: component.manufacturer, name: component.name,
+                manufacturerName: component.manufacturerName
+            ),
+            keepOnFailure: false
+        )
         onChange?()
     }
 
@@ -88,10 +93,19 @@ final class PluginHost {
     func retryUnavailable() async {
         let pending = unavailable
         unavailable = []
-        for config in pending {
-            await insert(config)
-        }
+        pendingRestore.append(contentsOf: pending)
+        await drainPendingRestore()
         onChange?()
+    }
+
+    private func drainPendingRestore() async {
+        guard !isRestoring else { return }
+        isRestoring = true
+        defer { isRestoring = false }
+        while let config = pendingRestore.first {
+            await insert(config, keepOnFailure: true)
+            if !pendingRestore.isEmpty { pendingRestore.removeFirst() }
+        }
     }
 
     func move(_ plugin: HostedPlugin, by offset: Int) {
@@ -127,14 +141,34 @@ final class PluginHost {
         PluginWindowController.shared.show(plugin)
     }
 
-    private func insert(_ config: PluginSlotConfig) async {
+    func shutdown() {
+        retireTimers.values.forEach { $0.cancel() }
+        retireTimers.removeAll()
+        PluginWindowController.shared.closeAll()
+        let old = ot_dsp_swap_plugin_chain(dsp.handle, nil)
+        let deadline = Date().addingTimeInterval(0.1)
+        while ot_dsp_plugin_chain_in_use(dsp.handle, old), Date() < deadline {
+            usleep(250)
+        }
+        if !ot_dsp_plugin_chain_in_use(dsp.handle, old) {
+            ot_plugin_chain_free(old)
+            plugins.forEach { $0.uninitialize() }
+        }
+        plugins.removeAll()
+    }
+
+    private func insert(_ config: PluginSlotConfig, keepOnFailure: Bool) async {
         do {
             let plugin = try await HostedPlugin.instantiate(config)
+            guard plugins.count < Int(OT_MAX_PLUGINS) else {
+                lastError = "The chain is full (\(OT_MAX_PLUGINS) plugins)."
+                return
+            }
             try plugin.configure(sampleRate: sampleRate, dsp: dsp)
             plugins.append(plugin)
             installChain()
         } catch {
-            unavailable.append(config)
+            if keepOnFailure { unavailable.append(config) }
             lastError = "Couldn't load \(config.name): \(error.localizedDescription)"
             Log.plugins.error("Loading \(config.name, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
         }
@@ -149,19 +183,46 @@ final class PluginHost {
         retire(ot_dsp_swap_plugin_chain(dsp.handle, chain), releasing: removed)
     }
 
-    /// Waits for the IO thread to stop using `chain` before freeing it and
-    /// uninitializing removed units. Waiting is bounded by one IO cycle in
-    /// practice; if the thread is stuck we leak the chain rather than risk a crash.
+    /// Waits briefly for the IO thread to stop using `chain`, then polls asynchronously if needed
+    /// so UI never stalls for long when an audio device hangs.
     private func retire(_ chain: UnsafeMutablePointer<ot_plugin_chain>?, releasing removed: [HostedPlugin]) {
-        let deadline = Date().addingTimeInterval(0.5)
+        guard let chain else {
+            removed.forEach { $0.uninitialize() }
+            return
+        }
+        let syncDeadline = Date().addingTimeInterval(0.05)
         while ot_dsp_plugin_chain_in_use(dsp.handle, chain) {
-            guard Date() < deadline else {
-                graveyard += removed
+            guard Date() < syncDeadline else {
+                scheduleRetire(
+                    address: UInt(bitPattern: chain), releasing: removed,
+                    deadline: Date().addingTimeInterval(2.0)
+                )
                 return
             }
             usleep(250)
         }
         ot_plugin_chain_free(chain)
         removed.forEach { $0.uninitialize() }
+    }
+
+    private func scheduleRetire(address: UInt, releasing removed: [HostedPlugin], deadline: Date) {
+        let id = UUID()
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.retireTimers.removeValue(forKey: id)
+                let chain = UnsafeMutablePointer<ot_plugin_chain>(bitPattern: address)
+                if !ot_dsp_plugin_chain_in_use(self.dsp.handle, chain) {
+                    ot_plugin_chain_free(chain)
+                    removed.forEach { $0.uninitialize() }
+                } else if Date() < deadline {
+                    self.scheduleRetire(address: address, releasing: removed, deadline: deadline)
+                } else {
+                    self.graveyard += removed
+                }
+            }
+        }
+        retireTimers[id] = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02, execute: work)
     }
 }

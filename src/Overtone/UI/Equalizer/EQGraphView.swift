@@ -19,7 +19,7 @@ struct GraphScale {
     }
 
     func db(atY y: CGFloat) -> Double {
-        Double((size.height / 2 - y) / (size.height / 2 - inset)) * dbRange
+        Double((size.height / 2 - y) / max(size.height / 2 - inset, 1)) * dbRange
     }
 }
 
@@ -91,16 +91,16 @@ private struct GridLayer: View {
 
 private struct SpectrumLayer: View {
     @Environment(SpectrumAnalyzer.self) private var analyzer
+    private static let edges = ResponseCurve.frequencies(count: SpectrumAnalyzer.barCount + 1)
     let scale: GraphScale
 
     var body: some View {
         Canvas { context, size in
             let levels = analyzer.levels
-            let edges = ResponseCurve.frequencies(count: levels.count + 1)
             let gradient = Gradient(colors: [.white.opacity(0.22), .white.opacity(0.05)])
             for (index, level) in levels.enumerated() where level > 0.005 {
-                let x0 = scale.x(edges[index]) + 0.5
-                let x1 = scale.x(edges[index + 1]) - 0.5
+                let x0 = scale.x(Self.edges[index]) + 0.5
+                let x1 = scale.x(Self.edges[index + 1]) - 0.5
                 let height = CGFloat(level) * size.height
                 let rect = CGRect(x: x0, y: size.height - height, width: max(1, x1 - x0), height: height)
                 context.fill(
@@ -119,13 +119,16 @@ private struct SpectrumLayer: View {
 
 private struct CurveLayer: View {
     @Environment(AppState.self) private var state
+    @Environment(AudioEngine.self) private var engine
     let scale: GraphScale
 
     var body: some View {
         // Filter shape only (no preamp), so Expert band handles sit on the curve.
         let bands = ParamsBuilder.activeBands(DSPSettings(equalizer: state.equalizer, correction: state.correction))
         let frequencies = ResponseCurve.frequencies(count: 160)
-        let magnitudes = ResponseCurve.magnitudes(bands: bands, frequencies: frequencies)
+        let magnitudes = ResponseCurve.magnitudes(
+            bands: bands, frequencies: frequencies, sampleRate: engine.context.sampleRate
+        )
         let active = state.isEnabled
         Canvas { context, size in
             var line = Path()
@@ -169,17 +172,26 @@ private struct BandHandle: View {
     let onChange: (EQBand) -> Void
 
     var body: some View {
-        let y = band.type.usesGain ? scale.y(band.gain) : scale.y(0)
+        let rawY = band.type.usesGain ? scale.y(band.gain) : scale.y(0)
+        let x = min(max(scale.x(band.frequency), 8), max(8, scale.size.width - 8))
+        let y = min(max(rawY, 8), max(8, scale.size.height - 8))
+        let detail = band.type.usesGain
+            ? "\(band.type.label) · \(Format.frequency(band.frequency)) Hz · \(Format.gain(band.gain)) dB · Q \(String(format: "%.2f", band.q))"
+            : "\(band.type.label) · \(Format.frequency(band.frequency)) Hz · Q \(String(format: "%.2f", band.q))"
         Circle()
             .fill(BandPalette.color(index))
             .overlay(Circle().strokeBorder(.white.opacity(0.85), lineWidth: 1.5))
             .overlay(Text("\(index + 1)").font(.system(size: 8, weight: .bold)).foregroundStyle(.black.opacity(0.75)))
             .frame(width: 15, height: 15)
             .opacity(band.isEnabled ? 1 : 0.35)
-            .position(x: scale.x(band.frequency), y: min(max(y, 8), scale.size.height - 8))
-            .help(
-                "\(band.type.label) · \(Format.frequency(band.frequency)) Hz · \(Format.gain(band.gain)) dB · Q \(String(format: "%.2f", band.q))"
-            )
+            .position(x: x, y: y)
+            .help(detail)
+            .highPriorityGesture(TapGesture(count: 2).onEnded {
+                guard band.type.usesGain else { return }
+                var updated = band
+                updated.gain = 0
+                onChange(updated)
+            })
             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("eqgraph")).onChanged { drag in
                 var updated = band
                 updated.frequency = scale.frequency(atX: drag.location.x).rounded()

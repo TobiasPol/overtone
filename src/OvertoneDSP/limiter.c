@@ -49,18 +49,24 @@ void ot_limiter_process(ot_limiter *l, const ot_params *p, float fs,
         clear_history(l);
         l->active = true;
     }
-    if (p->limiter_release_ms != l->release_ms) {
-        float ms = p->limiter_release_ms < 1.0f ? 1.0f : p->limiter_release_ms;
+    float rel_ms = isfinite(p->limiter_release_ms) ? p->limiter_release_ms : 80.0f;
+    if (rel_ms != l->release_ms) {
+        float ms = rel_ms < 1.0f ? 1.0f : rel_ms;
         l->release = 1.0f - expf(-1.0f / (ms * 0.001f * fs));
-        l->release_ms = p->limiter_release_ms;
+        l->release_ms = rel_ms;
     }
-    float ceiling = p->limiter_ceiling > 0.0f ? p->limiter_ceiling : 1.0f;
+    float ceiling = 1.0f;
+    if (isfinite(p->limiter_ceiling) && p->limiter_ceiling > 0.0f) {
+        ceiling = p->limiter_ceiling < 0.01f ? 0.01f : (p->limiter_ceiling > 1.0f ? 1.0f : p->limiter_ceiling);
+    }
     for (uint32_t i = 0; i < n; i++) {
-        float peak = fmaxf(fabsf(left[i]), fabsf(right[i]));
+        float in_l = isfinite(left[i]) ? left[i] : 0.0f;
+        float in_r = isfinite(right[i]) ? right[i] : 0.0f;
+        float peak = fmaxf(fabsf(in_l), fabsf(in_r));
         l->target[l->pos] = peak > ceiling ? ceiling / peak : 1.0f;
         float dl = l->delay[0][l->pos], dr = l->delay[1][l->pos];
-        l->delay[0][l->pos] = left[i];
-        l->delay[1][l->pos] = right[i];
+        l->delay[0][l->pos] = in_l;
+        l->delay[1][l->pos] = in_r;
         if (++l->pos >= l->len) l->pos = 0;
         float goal = window_min(l->target, l->len);
         l->env += (goal - l->env) * (goal < l->env ? l->attack : l->release);

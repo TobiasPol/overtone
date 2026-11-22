@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import OvertoneDSP
 
 /// Tracks which apps are producing audio and turns per-app volume settings
 /// into dedicated process taps.
@@ -9,6 +10,7 @@ final class VolumeMixer {
     @ObservationIgnored private var timer: Timer?
     /// Set by screenshot mode so live polling never replaces the demo apps.
     @ObservationIgnored private var isFrozen = false
+    private static var iconCache: [String: NSImage] = [:]
 
     /// Screenshot support (`--snapshot`): shows fixed demo apps instead of live processes.
     func showSnapshotApps(_ demo: [AudioApp]) {
@@ -41,10 +43,13 @@ final class VolumeMixer {
 
     static func tapRequests(settings: MixerSettings) -> [AppTapRequest] {
         guard !settings.apps.isEmpty else { return [] }
-        return AudioProcessCatalog.apps()
-            .filter { settings.apps[$0.id] != nil }
-            .map { AppTapRequest(key: $0.id, processes: $0.processObjectIDs.sorted()) }
-            .sorted { $0.key < $1.key }
+        return Array(
+            AudioProcessCatalog.apps()
+                .filter { settings.apps[$0.id] != nil }
+                .map { AppTapRequest(key: $0.id, processes: $0.processObjectIDs.sorted()) }
+                .sorted { $0.key < $1.key }
+                .prefix(Int(OT_MAX_TAPS) - 1)
+        )
     }
 
     nonisolated static func tapGains(settings: MixerSettings) -> [String: Double] {
@@ -52,13 +57,17 @@ final class VolumeMixer {
     }
 
     static func icon(for app: AudioApp) -> NSImage {
-        if let running = NSRunningApplication(processIdentifier: app.pid), let icon = running.icon {
-            return icon
+        if let cached = iconCache[app.id] { return cached }
+        let image: NSImage = if let running = NSRunningApplication(processIdentifier: app.pid), let icon = running.icon {
+            icon
+        } else if let bundleID = app.bundleID,
+                  let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+            NSWorkspace.shared.icon(forFile: url.path)
+        } else {
+            NSWorkspace.shared.icon(for: .applicationBundle)
         }
-        if let bundleID = app.bundleID,
-           let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
-            return NSWorkspace.shared.icon(forFile: url.path)
-        }
-        return NSWorkspace.shared.icon(for: .applicationBundle)
+        if iconCache.count > 100 { iconCache.removeAll() }
+        iconCache[app.id] = image
+        return image
     }
 }

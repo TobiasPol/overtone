@@ -55,10 +55,20 @@ final class AppState {
     }
 
     /// Swaps in the equalizer/correction remembered for a device (or keeps the current ones).
-    func loadProfile(for deviceUID: String) {
-        guard general.rememberPerDevice, let profile = deviceProfiles[deviceUID] else { return }
+    @discardableResult
+    func loadProfile(for deviceUID: String) -> Bool {
+        guard general.rememberPerDevice, let profile = deviceProfiles[deviceUID] else { return false }
+        isRestoring = true
+        defer { isRestoring = false }
         equalizer = profile.equalizer
         correction = profile.correction
+        return true
+    }
+
+    func resetCorrectionForNewDevice() {
+        isRestoring = true
+        defer { isRestoring = false }
+        correction = HeadphoneCorrection()
     }
 
     func storeProfile(for deviceUID: String) {

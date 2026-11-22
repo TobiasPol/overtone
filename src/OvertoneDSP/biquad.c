@@ -60,12 +60,12 @@ static raw_coeffs pass_filters(ot_filter_type type, double cw, double alpha) {
 
 ot_biquad_coeffs ot_biquad_design(ot_filter_type type, double sample_rate,
                                   double freq, double gain_db, double q) {
-    if (sample_rate <= 0) {
+    if (!isfinite(sample_rate) || sample_rate <= 0 || isnan(freq)) {
         return ot_biquad_identity();
     }
     double f0 = clampd(freq, 1.0, sample_rate * 0.49);
-    double qq = clampd(q, 0.025, 40.0);
-    double a = pow(10.0, clampd(gain_db, -48.0, 48.0) / 40.0);
+    double qq = clampd(isnan(q) ? 1.0 : q, 0.025, 40.0);
+    double a = pow(10.0, clampd(isnan(gain_db) ? 0.0 : gain_db, -48.0, 48.0) / 40.0);
     double w0 = 2.0 * M_PI * f0 / sample_rate;
     double cw = cos(w0);
     double alpha = sin(w0) / (2.0 * qq);
@@ -86,6 +86,9 @@ ot_biquad_coeffs ot_biquad_design(ot_filter_type type, double sample_rate,
 }
 
 double ot_biquad_magnitude_db(ot_biquad_coeffs c, double freq, double sample_rate) {
+    if (!isfinite(sample_rate) || sample_rate <= 0 || !isfinite(freq)) {
+        return 0.0;
+    }
     double w = 2.0 * M_PI * freq / sample_rate;
     double c1 = cos(w), c2 = cos(2 * w), s1 = sin(w), s2 = sin(2 * w);
     double nr = c.b0 + c.b1 * c1 + c.b2 * c2;

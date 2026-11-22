@@ -48,18 +48,21 @@ enum AutoEQIndex {
         component.addingPercentEncoding(withAllowedCharacters: unreserved) ?? component
     }
 
-    /// Ranked search: every query word must appear in the name.
+    /// Ranked search: every query word must appear in the name, source, or rig.
     static func search(_ query: String, in entries: [AutoEQEntry], limit: Int = 80) -> [AutoEQEntry] {
-        let words = query.lowercased().split(separator: " ").map(String.init)
+        let words = query.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
         guard !words.isEmpty else { return [] }
         let matches = entries.filter { entry in
-            let name = entry.name.lowercased()
-            return words.allSatisfy { name.contains($0) }
+            let haystack = "\(entry.name) \(entry.source) \(entry.rig ?? "")".lowercased()
+            return words.allSatisfy { haystack.contains($0) }
         }
         let first = words[0]
         return Array(matches.sorted { a, b in
-            let ap = a.name.lowercased().hasPrefix(first), bp = b.name.lowercased().hasPrefix(first)
+            let aName = a.name.lowercased(), bName = b.name.lowercased()
+            let ap = aName.hasPrefix(first), bp = bName.hasPrefix(first)
             if ap != bp { return ap }
+            let an = words.allSatisfy { aName.contains($0) }, bn = words.allSatisfy { bName.contains($0) }
+            if an != bn { return an }
             if sourceRank(a.source) != sourceRank(b.source) { return sourceRank(a.source) < sourceRank(b.source) }
             return a.name.count < b.name.count
         }.prefix(limit))

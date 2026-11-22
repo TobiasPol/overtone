@@ -82,4 +82,21 @@ struct OutputSettings: Codable, Equatable, Sendable {
     var softwareVolumeKeys = true
 
     static let boostChoices: [Double] = [1.5, 2, 3, 4]
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let boost = try c.decodeIfPresent(Double.self, forKey: .maxBoost) ?? 2.0
+        maxBoost = (boost.isFinite ? boost : 2.0).clamped(to: 1...4)
+        let vol = try c.decodeIfPresent(Double.self, forKey: .volume) ?? 1.0
+        volume = (vol.isFinite ? vol : 1.0).clamped(to: 0...maxBoost)
+        let bal = try c.decodeIfPresent(Double.self, forKey: .balance) ?? 0.0
+        balance = (bal.isFinite ? bal : 0.0).clamped(to: -1...1)
+        isMuted = try c.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
+        limiterEnabled = try c.decodeIfPresent(Bool.self, forKey: .limiterEnabled) ?? true
+        let ceil = try c.decodeIfPresent(Double.self, forKey: .limiterCeilingDB) ?? -0.3
+        limiterCeilingDB = (ceil.isFinite ? ceil : -0.3).clamped(to: -12...0)
+        softwareVolumeKeys = try c.decodeIfPresent(Bool.self, forKey: .softwareVolumeKeys) ?? true
+    }
 }

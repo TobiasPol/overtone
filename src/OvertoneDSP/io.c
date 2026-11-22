@@ -9,13 +9,28 @@
 #include <xmmintrin.h>
 #endif
 
-static inline void enable_flush_to_zero(void) {
+static inline uint64_t enable_flush_to_zero(void) {
 #if defined(__aarch64__)
     uint64_t fpcr;
     __asm__ __volatile__("mrs %0, fpcr" : "=r"(fpcr));
     __asm__ __volatile__("msr fpcr, %0" : : "r"(fpcr | (1ULL << 24)));
+    return fpcr;
 #elif defined(__x86_64__)
-    _mm_setcsr(_mm_getcsr() | 0x8040);
+    unsigned int mxcsr = _mm_getcsr();
+    _mm_setcsr(mxcsr | 0x8040u);
+    return (uint64_t)mxcsr;
+#else
+    return 0;
+#endif
+}
+
+static inline void restore_fp_state(uint64_t prev) {
+#if defined(__aarch64__)
+    __asm__ __volatile__("msr fpcr, %0" : : "r"(prev));
+#elif defined(__x86_64__)
+    _mm_setcsr((unsigned int)prev);
+#else
+    (void)prev;
 #endif
 }
 
@@ -25,8 +40,14 @@ static uint32_t buffer_frames(const AudioBuffer *b) {
 }
 
 static uint32_t output_frames(const AudioBufferList *out) {
-    if (out == NULL || out->mNumberBuffers == 0) return 0;
-    return buffer_frames(&out->mBuffers[0]);
+    if (out == NULL) return 0;
+    for (uint32_t b = 0; b < out->mNumberBuffers; b++) {
+        const AudioBuffer *buf = &out->mBuffers[b];
+        if (buf->mData != NULL && buf->mNumberChannels > 0) {
+            return buffer_frames(buf);
+        }
+    }
+    return 0;
 }
 
 /* Source channels inside one tap buffer: the configured pair when the buffer has it,
@@ -63,9 +84,10 @@ static void mix_inputs(ot_dsp *d, const ot_params *p, const AudioBufferList *in,
     memset(d->left, 0, n * sizeof(float));
     memset(d->right, 0, n * sizeof(float));
     if (in == NULL) return;
-    uint32_t taps = p->tap_count < in->mNumberBuffers ? p->tap_count : in->mNumberBuffers;
+    uint32_t req = p->tap_count > OT_MAX_TAPS ? OT_MAX_TAPS : p->tap_count;
+    uint32_t taps = req < in->mNumberBuffers ? req : in->mNumberBuffers;
     uint32_t first = in->mNumberBuffers - taps;
-    for (uint32_t t = 0; t < taps && t < OT_MAX_TAPS; t++) {
+    for (uint32_t t = 0; t < taps; t++) {
         mix_tap(&d->smooth.tap[t], p->tap_gain[t], d->smooth.coef, p, &in->mBuffers[first + t],
                 offset, n, d->left, d->right);
     }
@@ -88,14 +110,16 @@ static void write_outputs(ot_dsp *d, const ot_params *p, AudioBufferList *out,
     for (uint32_t b = 0; b < out->mNumberBuffers; b++) {
         AudioBuffer *buf = &out->mBuffers[b];
         uint32_t ch = buf->mNumberChannels;
-        if (buf->mData != NULL && offset < buffer_frames(buf)) {
+        uint32_t avail = buffer_frames(buf);
+        if (buf->mData != NULL && ch > 0 && offset < avail) {
+            uint32_t count = avail - offset < n ? avail - offset : n;
             float *dst = (float *)buf->mData + (size_t)offset * ch;
             for (uint32_t c = 0; c < ch; c++) {
                 uint32_t flat = base + c;
                 const float *src = mono && flat == p->out_left ? mono
                                  : flat == p->out_left ? d->left
                                  : flat == p->out_right ? d->right : NULL;
-                write_channel(dst + c, ch, src, n);
+                write_channel(dst + c, ch, src, count);
             }
         }
         base += ch;
@@ -109,7 +133,7 @@ static OSStatus io_proc(AudioObjectID device, const AudioTimeStamp *now,
     (void)device; (void)now; (void)input_time; (void)output_time;
     ot_dsp *d = client;
     if (d == NULL || output == NULL) return noErr;
-    enable_flush_to_zero();
+    uint64_t prev_fp = enable_flush_to_zero();
     const ot_params *p = ot_box_acquire(&d->box);
     if (!d->smooth.primed) {
         for (uint32_t i = 0; i < OT_MAX_TAPS; i++) d->smooth.tap[i] = p->tap_gain[i];
@@ -123,7 +147,10 @@ static OSStatus io_proc(AudioObjectID device, const AudioTimeStamp *now,
         write_outputs(d, p, output, done, n);
         done += n;
     }
-    atomic_fetch_add_explicit(&d->cycles, 1, memory_order_relaxed);
+    if (frames > 0) {
+        atomic_fetch_add_explicit(&d->cycles, 1, memory_order_relaxed);
+    }
+    restore_fp_state(prev_fp);
     return noErr;
 }
 

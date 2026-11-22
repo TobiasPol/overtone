@@ -18,12 +18,16 @@ private struct SpatialCard: View {
 
     var body: some View {
         @Bindable var state = state
+        let defaults = (state.spatial.room ?? .mediumRoom).values
         SectionCard(title: "Spatial Audio", systemImage: "cube.transparent") {
             Toggle("Spatial Audio", isOn: $state.spatial.roomEnabled).toggleStyle(.switch).controlSize(.mini).labelsHidden()
         } content: {
             LazyVGrid(columns: columns, spacing: 6) {
                 ForEach(RoomPreset.allCases) { preset in
-                    Button { state.spatial.apply(preset) } label: {
+                    Button {
+                        state.spatial.roomEnabled = true
+                        state.spatial.apply(preset)
+                    } label: {
                         Text(preset.label)
                             .font(.system(size: 10.5, weight: .medium))
                             .lineLimit(1)
@@ -40,12 +44,28 @@ private struct SpatialCard: View {
                     .buttonStyle(.plain)
                 }
             }
+            .opacity(state.spatial.roomEnabled ? 1 : 0.65)
             Group {
-                ParameterSlider(title: "Room Size", value: custom(\.roomSize), range: 0...1, format: Format.percent)
-                ParameterSlider(title: "Damping", value: custom(\.damping), range: 0...1, format: Format.percent)
-                ParameterSlider(title: "Mix", value: custom(\.mix), range: 0...0.8, format: Format.percent)
-                ParameterSlider(title: "Pre-delay", value: custom(\.predelayMs), range: 0...100) { "\(Int($0)) ms" }
-                ParameterSlider(title: "Spread", value: custom(\.roomWidth), range: 0...1, format: Format.percent)
+                ParameterSlider(
+                    title: "Room Size", value: custom(\.roomSize), range: 0...1,
+                    defaultValue: defaults.size, format: Format.percent
+                )
+                ParameterSlider(
+                    title: "Damping", value: custom(\.damping), range: 0...1,
+                    defaultValue: defaults.damping, format: Format.percent
+                )
+                ParameterSlider(
+                    title: "Mix", value: custom(\.mix), range: 0...0.8,
+                    defaultValue: defaults.mix, format: Format.percent
+                )
+                ParameterSlider(
+                    title: "Pre-delay", value: custom(\.predelayMs), range: 0...100,
+                    defaultValue: defaults.predelay
+                ) { "\(Int($0)) ms" }
+                ParameterSlider(
+                    title: "Spread", value: custom(\.roomWidth), range: 0...1,
+                    defaultValue: defaults.width, format: Format.percent
+                )
             }
             .disabled(!state.spatial.roomEnabled)
             .opacity(state.spatial.roomEnabled ? 1 : 0.5)

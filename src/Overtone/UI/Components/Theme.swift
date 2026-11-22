@@ -36,8 +36,10 @@ enum Format {
     }
 
     static func gain(_ db: Double, decimals: Int = 1) -> String {
-        let value = String(format: "%.\(decimals)f", db)
-        return db > 0.0001 ? "+" + value : value
+        let threshold = 0.5 * pow(10.0, -Double(decimals))
+        let clean = abs(db) < threshold ? 0.0 : db
+        let value = String(format: "%.\(decimals)f", clean)
+        return clean > 0 ? "+" + value : value
     }
 
     static func percent(_ value: Double) -> String {

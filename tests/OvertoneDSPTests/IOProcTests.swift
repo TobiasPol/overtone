@@ -141,4 +141,52 @@ struct IOProcTests {
         runIO({ _ in }, input: input, output: output)
         #expect(output.sample(buffer: 0, frame: 32, channel: 0) == 0)
     }
+
+    @Test func excessiveTapCountDoesNotShiftGlobalTap() {
+        let input = BufferList(channels: [1, 2, 2], frames: 128) { buffer, _ in
+            buffer == 0 ? 0.9 : (buffer == 1 ? 0.25 : 0.1)
+        }
+        let output = BufferList(channels: [2], frames: 128)
+        runIO({ p in
+            p.tap_count = UInt32(OT_MAX_TAPS) + 10
+        }, input: input, output: output)
+        // With 3 input buffers and clamped tap_count, all 3 buffers are still bounded safely;
+        // verify when input has 35 buffers (> OT_MAX_TAPS) and tap_count > OT_MAX_TAPS.
+        let many = BufferList(channels: Array(repeating: 2, count: 35), frames: 64) { buf, _ in
+            buf == 2 ? 0.8 : (buf == 3 ? 0.2 : 0.0)
+        }
+        let out2 = BufferList(channels: [2], frames: 64)
+        runIO({ p in
+            p.tap_count = UInt32(OT_MAX_TAPS) + 5
+        }, input: many, output: out2)
+        // Clamped to OT_MAX_TAPS (32), so first = 35 - 32 = 3 (not 0), avoiding buffer 2 (0.8).
+        #expect(abs(out2.sample(buffer: 0, frame: 32, channel: 0) - 0.2) < 1e-5)
+    }
+
+    @Test func unequalOutputBuffersDoNotOverflowAndZeroFramesDoNotIncrementCycles() {
+        let input = BufferList(channels: [2], frames: 128) { _, _ in 0.4 }
+        let output = BufferList(channels: [2, 2], frames: 128) { _, _ in 0.7 }
+        output.list[1].mDataByteSize = UInt32(32 * 2 * MemoryLayout<Float>.size)
+        runIO({ p in
+            p.out_left = 0
+            p.out_right = 2
+        }, input: input, output: output)
+        #expect(abs(output.sample(buffer: 1, frame: 10, channel: 0) - 0.4) < 1e-6)
+        #expect(output.sample(buffer: 1, frame: 40, channel: 0) == 0.7)
+
+        let dsp = ot_dsp_create()!
+        defer { ot_dsp_destroy(dsp) }
+        let emptyOut = BufferList(channels: [2], frames: 0)
+        var time = AudioTimeStamp()
+        _ = ot_io_proc_ptr()!(
+            0,
+            &time,
+            input.list.unsafePointer,
+            &time,
+            emptyOut.list.unsafeMutablePointer,
+            &time,
+            UnsafeMutableRawPointer(dsp)
+        )
+        #expect(ot_dsp_cycle_count(dsp) == 0)
+    }
 }

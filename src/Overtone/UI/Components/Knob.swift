@@ -11,7 +11,7 @@ struct Knob: View {
     @State private var dragOrigin: Double?
 
     private var span: Double { range.upperBound - range.lowerBound }
-    private func fraction(_ v: Double) -> Double { (v - range.lowerBound) / span }
+    private func fraction(_ v: Double) -> Double { span > 0 ? (v - range.lowerBound) / span : 0 }
     /// Trim position on a circle rotated so 0 sits at six o'clock.
     private func trim(_ v: Double) -> CGFloat { CGFloat(0.125 + fraction(v) * 0.75) }
 
@@ -86,16 +86,23 @@ struct VerticalSlider: View {
             }
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0).onChanged { drag in
-                let f = 1 - (drag.location.y - thumb / 2) / (h - thumb)
+                let usable = max(h - thumb, 1)
+                let f = 1 - (drag.location.y - thumb / 2) / usable
                 let raw = range.lowerBound + Double(f) * (range.upperBound - range.lowerBound)
                 value = ((raw / step).rounded() * step).clamped(to: range)
             })
-            .simultaneousGesture(TapGesture(count: 2).onEnded { value = defaultValue })
+            .highPriorityGesture(TapGesture(count: 2).onEnded { value = defaultValue })
+            .accessibilityElement()
+            .accessibilityValue(Text(String(format: "%.1f", value)))
+            .accessibilityAdjustableAction { direction in
+                value = (value + (direction == .increment ? step : -step)).clamped(to: range)
+            }
         }
     }
 
     private func y(for v: Double, height: CGFloat) -> CGFloat {
-        let f = (v - range.lowerBound) / (range.upperBound - range.lowerBound)
-        return thumb / 2 + (1 - CGFloat(f)) * (height - thumb)
+        let span = range.upperBound - range.lowerBound
+        let f = span > 0 ? (v - range.lowerBound) / span : 0
+        return thumb / 2 + (1 - CGFloat(f)) * max(height - thumb, 0)
     }
 }

@@ -1,12 +1,13 @@
 import AudioToolbox
 import AVFoundation
+import Observation
 import OvertoneDSP
 
 /// One Audio Unit effect instance inserted into Overtone's processing chain.
-@MainActor
+@MainActor @Observable
 final class HostedPlugin: Identifiable {
-    let id: UUID
-    let unit: AVAudioUnit
+    @ObservationIgnored let id: UUID
+    @ObservationIgnored let unit: AVAudioUnit
     var config: PluginSlotConfig
     private(set) var isInitialized = false
 

@@ -104,7 +104,7 @@ enum AppIdentity {
                 return Resolved(id: id, name: app.localizedName ?? id, bundleID: id, pid: candidate)
             }
         }
-        if let bundleID {
+        if let bundleID, !bundleID.isEmpty {
             return Resolved(id: bundleID, name: prettyName(bundleID), bundleID: bundleID, pid: pid)
         }
         return Resolved(id: "pid:\(pid)", name: processName(pid) ?? "Process \(pid)", bundleID: nil, pid: pid)
@@ -118,6 +118,7 @@ enum AppIdentity {
     private static func processName(_ pid: pid_t) -> String? {
         var buffer = [CChar](repeating: 0, count: 256)
         guard proc_name(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
-        return String(cString: buffer)
+        let name = String(cString: buffer).trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
     }
 }
