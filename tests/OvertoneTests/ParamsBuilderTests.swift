@@ -140,6 +140,12 @@ struct ParamsBuilderTests {
         s.equalizer.basic.bass = 6
         #expect(ParamsBuilder.sections(s, sampleRate: 48_000).count == Int(OT_MAX_BANDS))
         #expect(ParamsBuilder.activeBands(s).isEmpty)
+
+        s.correction.isEnabled = false
+        let sections = ParamsBuilder.sections(s, sampleRate: 48_000)
+        #expect(sections.count == Int(OT_MAX_BANDS))
+        #expect(sections.allSatisfy { $0.b0 == 1 && $0.b1 == 0 && $0.b2 == 0 && $0.a1 == 0 && $0.a2 == 0 })
+        #expect(ParamsBuilder.activeBands(s).isEmpty)
     }
 
     @Test @MainActor func spectrumAnalyzerHandlesLowAndZeroSampleRates() {

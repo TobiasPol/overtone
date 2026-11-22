@@ -54,6 +54,7 @@ final class AudioEngine {
     @ObservationIgnored private var healthRetries = 0
     /// Incremented per launched pipeline so stale health checks can't tear down a newer one.
     @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var isSleeping = false
 
     func activate() {
         monitor.onDevicesChanged = { [weak self] in self?.refreshDevices() }
@@ -61,7 +62,7 @@ final class AudioEngine {
         monitor.onProcessesChanged = { [weak self] in self?.scheduleProcessSync() }
         monitor.onOutputFormatChanged = { [weak self] in self?.scheduleRebuild() }
         monitor.onSleep = { [weak self] in self?.handleSleep() }
-        monitor.onWake = { [weak self] in self?.scheduleRebuild(delay: 1.5) }
+        monitor.onWake = { [weak self] in self?.handleWake() }
         monitor.start()
         refreshDevices()
     }
@@ -104,9 +105,9 @@ final class AudioEngine {
     }
 
     func scheduleRebuild(delay: TimeInterval = 0.25) {
-        guard isEnabled, status != .permissionDenied, status != .awaitingPermission else { return }
+        guard isEnabled, !isSleeping, status != .permissionDenied, status != .awaitingPermission else { return }
         rebuildWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.rebuild() }
+        let work = DispatchWorkItem { [weak self] in self?.startWithPermission() }
         rebuildWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
@@ -147,29 +148,48 @@ final class AudioEngine {
     // MARK: - Pipeline
 
     private func startWithPermission() {
+        guard isEnabled, !isSleeping else { return }
         switch AudioCapturePermission.state {
         case .authorized:
             rebuild()
         case .denied:
+            teardown()
             status = .permissionDenied
         case .undetermined:
+            teardown()
             status = .awaitingPermission
             AudioCapturePermission.request { [weak self] granted in
                 guard let self, isEnabled, status == .awaitingPermission else { return }
-                if granted { rebuild() } else { status = .permissionDenied }
+                guard granted else {
+                    status = .permissionDenied
+                    return
+                }
+                if isSleeping {
+                    status = .starting
+                } else {
+                    rebuild()
+                }
             }
         }
     }
 
     private func handleSleep() {
+        isSleeping = true
         guard isEnabled else { return }
         teardown()
-        status = .starting
+        if status != .permissionDenied, status != .awaitingPermission {
+            status = .starting
+        }
+    }
+
+    private func handleWake() {
+        isSleeping = false
+        scheduleRebuild(delay: 1.5)
     }
 
     private func rebuild() {
         teardown()
-        guard isEnabled else { return }
+        guard isEnabled, !isSleeping else { return }
         let previousUID = outputDevice?.uid
         // Re-read the device: its channel layout can change under the same ID (e.g. Bluetooth profiles).
         guard let output = outputDevice.flatMap({ AudioDevice.make($0.id) }) ?? AudioDevice.defaultOutput() else {

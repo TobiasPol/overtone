@@ -189,4 +189,31 @@ struct IOProcTests {
         )
         #expect(ot_dsp_cycle_count(dsp) == 0)
     }
+
+    @Test func leadingZeroByteOutputBufferDoesNotSkipLaterBuffers() {
+        let input = BufferList(channels: [2], frames: 64) { _, _ in 0.35 }
+        let output = BufferList(channels: [2, 2], frames: 64) { _, _ in 0.9 }
+        output.list[0].mDataByteSize = 0
+        let dsp = ot_dsp_create()!
+        defer { ot_dsp_destroy(dsp) }
+        var params = ot_params()
+        ot_params_init(&params, 48_000)
+        params.out_left = 2
+        params.out_right = 3
+        ot_dsp_publish(dsp, &params)
+        var time = AudioTimeStamp()
+        _ = ot_io_proc_ptr()!(
+            0,
+            &time,
+            input.list.unsafePointer,
+            &time,
+            output.list.unsafeMutablePointer,
+            &time,
+            UnsafeMutableRawPointer(dsp)
+        )
+        #expect(ot_dsp_cycle_count(dsp) == 1)
+        #expect(abs(output.sample(buffer: 1, frame: 32, channel: 0) - 0.35) < 1e-6)
+        #expect(abs(output.sample(buffer: 1, frame: 32, channel: 1) - 0.35) < 1e-6)
+        #expect(output.sample(buffer: 0, frame: 0, channel: 0) == 0.9)
+    }
 }

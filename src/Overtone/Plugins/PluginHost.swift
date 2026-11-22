@@ -2,17 +2,6 @@ import AVFoundation
 import Observation
 import OvertoneDSP
 
-/// An installable Audio Unit effect found on this Mac.
-struct PluginComponent: Identifiable, Hashable {
-    let type: UInt32
-    let subType: UInt32
-    let manufacturer: UInt32
-    let name: String
-    let manufacturerName: String
-
-    var id: String { "\(type)-\(subType)-\(manufacturer)" }
-}
-
 /// Manages the user's Audio Unit chain and hands it to the IO thread.
 @MainActor @Observable
 final class PluginHost {
@@ -29,7 +18,16 @@ final class PluginHost {
     @ObservationIgnored private var graveyard: [HostedPlugin] = []
     @ObservationIgnored private var pendingRestore: [PluginSlotConfig] = []
     @ObservationIgnored private var isRestoring = false
-    @ObservationIgnored private var retireTimers: [UUID: DispatchWorkItem] = [:]
+    @ObservationIgnored private var installedUnits: [HostedPlugin] = []
+    @ObservationIgnored private var pendingRetirements: [PendingRetirement] = []
+    @ObservationIgnored private var pendingDispose: [HostedPlugin] = []
+    @ObservationIgnored private var retireTimer: DispatchWorkItem?
+
+    private struct PendingRetirement {
+        let chainAddress: UInt
+        let units: [HostedPlugin]
+        let deadline: Date
+    }
 
     init(dsp: DSPCore) {
         self.dsp = dsp
@@ -126,8 +124,11 @@ final class PluginHost {
     /// Called while IO is stopped, before a pipeline starts at `sampleRate`.
     func prepare(sampleRate: Double) {
         self.sampleRate = sampleRate
-        retire(ot_dsp_swap_plugin_chain(dsp.handle, nil), releasing: [])
-        for plugin in plugins {
+        let previous = installedUnits
+        installedUnits = []
+        retire(ot_dsp_swap_plugin_chain(dsp.handle, nil), units: previous, releasing: [])
+        waitForRetirements(timeout: 0.05)
+        for plugin in plugins where !isUnitLocked(plugin) {
             do {
                 try plugin.configure(sampleRate: sampleRate, dsp: dsp)
             } catch {
@@ -142,25 +143,31 @@ final class PluginHost {
     }
 
     func shutdown() {
-        retireTimers.values.forEach { $0.cancel() }
-        retireTimers.removeAll()
+        retireTimer?.cancel()
+        retireTimer = nil
         PluginWindowController.shared.closeAll()
-        let old = ot_dsp_swap_plugin_chain(dsp.handle, nil)
-        let deadline = Date().addingTimeInterval(0.1)
-        while ot_dsp_plugin_chain_in_use(dsp.handle, old), Date() < deadline {
-            usleep(250)
+        let previous = installedUnits
+        installedUnits = []
+        if let old = ot_dsp_swap_plugin_chain(dsp.handle, nil) {
+            pendingRetirements.append(PendingRetirement(
+                chainAddress: UInt(bitPattern: old),
+                units: previous,
+                deadline: Date().addingTimeInterval(0.1)
+            ))
         }
-        if !ot_dsp_plugin_chain_in_use(dsp.handle, old) {
-            ot_plugin_chain_free(old)
-            plugins.forEach { $0.uninitialize() }
-        }
+        pendingDispose.append(contentsOf: plugins)
         plugins.removeAll()
+        waitForRetirements(timeout: 0.1)
+        pendingRetirements.forEach { appendToGraveyard($0.units) }
+        pendingRetirements.removeAll()
+        drainPendingDisposals()
     }
 
     private func insert(_ config: PluginSlotConfig, keepOnFailure: Bool) async {
         do {
             let plugin = try await HostedPlugin.instantiate(config)
             guard plugins.count < Int(OT_MAX_PLUGINS) else {
+                if keepOnFailure { unavailable.append(config) }
                 lastError = "The chain is full (\(OT_MAX_PLUGINS) plugins)."
                 return
             }
@@ -176,53 +183,114 @@ final class PluginHost {
 
     /// Publishes an immutable chain reflecting `plugins`, then retires the old one.
     private func installChain(releasing removed: [HostedPlugin] = []) {
-        guard let chain = ot_plugin_chain_create() else { return }
-        for plugin in plugins where plugin.isInitialized {
+        guard let chain = ot_plugin_chain_create() else {
+            pendingDispose.append(contentsOf: removed)
+            drainPendingDisposals()
+            return
+        }
+        let graveyardIDs = Set(graveyard.map(\.id))
+        let active = plugins.filter { $0.isInitialized && !graveyardIDs.contains($0.id) }
+        for plugin in active {
             _ = ot_plugin_chain_append(chain, plugin.audioUnit, plugin.config.isBypassed)
         }
-        retire(ot_dsp_swap_plugin_chain(dsp.handle, chain), releasing: removed)
+        let previous = installedUnits
+        installedUnits = active
+        retire(ot_dsp_swap_plugin_chain(dsp.handle, chain), units: previous, releasing: removed)
     }
 
     /// Waits briefly for the IO thread to stop using `chain`, then polls asynchronously if needed
     /// so UI never stalls for long when an audio device hangs.
-    private func retire(_ chain: UnsafeMutablePointer<ot_plugin_chain>?, releasing removed: [HostedPlugin]) {
-        guard let chain else {
-            removed.forEach { $0.uninitialize() }
-            return
-        }
-        let syncDeadline = Date().addingTimeInterval(0.05)
-        while ot_dsp_plugin_chain_in_use(dsp.handle, chain) {
-            guard Date() < syncDeadline else {
-                scheduleRetire(
-                    address: UInt(bitPattern: chain), releasing: removed,
-                    deadline: Date().addingTimeInterval(2.0)
-                )
-                return
+    private func retire(
+        _ chain: UnsafeMutablePointer<ot_plugin_chain>?,
+        units: [HostedPlugin],
+        releasing removed: [HostedPlugin]
+    ) {
+        pendingDispose.append(contentsOf: removed)
+        if let chain {
+            let syncDeadline = Date().addingTimeInterval(0.05)
+            while ot_dsp_plugin_chain_in_use(dsp.handle, chain) {
+                guard Date() < syncDeadline else {
+                    pendingRetirements.append(PendingRetirement(
+                        chainAddress: UInt(bitPattern: chain),
+                        units: units,
+                        deadline: Date().addingTimeInterval(2.0)
+                    ))
+                    scheduleRetirePoll()
+                    drainPendingDisposals()
+                    return
+                }
+                usleep(250)
             }
-            usleep(250)
+            ot_plugin_chain_free(chain)
         }
-        ot_plugin_chain_free(chain)
-        removed.forEach { $0.uninitialize() }
+        reapCompletedRetirements()
+        drainPendingDisposals()
     }
 
-    private func scheduleRetire(address: UInt, releasing removed: [HostedPlugin], deadline: Date) {
-        let id = UUID()
-        let work = DispatchWorkItem { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.retireTimers.removeValue(forKey: id)
-                let chain = UnsafeMutablePointer<ot_plugin_chain>(bitPattern: address)
-                if !ot_dsp_plugin_chain_in_use(self.dsp.handle, chain) {
-                    ot_plugin_chain_free(chain)
-                    removed.forEach { $0.uninitialize() }
-                } else if Date() < deadline {
-                    self.scheduleRetire(address: address, releasing: removed, deadline: deadline)
-                } else {
-                    self.graveyard += removed
-                }
+    private func waitForRetirements(timeout: TimeInterval) {
+        let deadline = Date().addingTimeInterval(timeout)
+        reapCompletedRetirements()
+        while !pendingRetirements.isEmpty, Date() < deadline {
+            usleep(250)
+            reapCompletedRetirements()
+        }
+    }
+
+    private func reapCompletedRetirements(expireAt now: Date? = nil) {
+        var remaining: [PendingRetirement] = []
+        for entry in pendingRetirements {
+            let chain = UnsafeMutablePointer<ot_plugin_chain>(bitPattern: entry.chainAddress)
+            if !ot_dsp_plugin_chain_in_use(dsp.handle, chain) {
+                ot_plugin_chain_free(chain)
+            } else if let now, now >= entry.deadline {
+                appendToGraveyard(entry.units)
+            } else {
+                remaining.append(entry)
             }
         }
-        retireTimers[id] = work
+        pendingRetirements = remaining
+        if pendingRetirements.isEmpty {
+            retireTimer?.cancel()
+            retireTimer = nil
+        }
+    }
+
+    private func pollRetirements() {
+        retireTimer = nil
+        reapCompletedRetirements(expireAt: Date())
+        drainPendingDisposals()
+        if !pendingRetirements.isEmpty { scheduleRetirePoll() }
+    }
+
+    private func scheduleRetirePoll() {
+        guard retireTimer == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated { self?.pollRetirements() }
+        }
+        retireTimer = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.02, execute: work)
+    }
+
+    private func drainPendingDisposals() {
+        guard !pendingDispose.isEmpty else { return }
+        let graveyardIDs = Set(graveyard.map(\.id))
+        var lockedIDs = Set(installedUnits.map(\.id))
+        pendingRetirements.forEach { lockedIDs.formUnion($0.units.map(\.id)) }
+        var kept: [HostedPlugin] = []
+        for plugin in pendingDispose {
+            if graveyardIDs.contains(plugin.id) { continue }
+            if lockedIDs.contains(plugin.id) { kept.append(plugin) } else { plugin.uninitialize() }
+        }
+        pendingDispose = kept
+    }
+
+    private func isUnitLocked(_ plugin: HostedPlugin) -> Bool {
+        graveyard.contains { $0.id == plugin.id }
+            || pendingRetirements.contains { $0.units.contains { $0.id == plugin.id } }
+    }
+
+    private func appendToGraveyard(_ units: [HostedPlugin]) {
+        var existing = Set(graveyard.map(\.id))
+        graveyard.append(contentsOf: units.filter { existing.insert($0.id).inserted })
     }
 }

@@ -72,24 +72,14 @@ static bool is_identity(const ot_biquad_coeffs *c) {
 void ot_eq_process(ot_eq *eq, const ot_params *p, float *l, float *r, uint32_t n) {
     if (n == 0) return;
     uint32_t count = p->band_count > OT_MAX_BANDS ? OT_MAX_BANDS : p->band_count;
+    uint32_t prev_count = eq->count;
     ot_biquad_coeffs id = ot_biquad_identity();
     /* Newly appearing sections start settled on the first block, or ramp from identity live. */
-    for (uint32_t b = eq->count; b < count; b++) {
+    for (uint32_t b = prev_count; b < count; b++) {
         eq->cur[b] = eq->primed ? id : p->bands[b];
         memset(&eq->state[0][b], 0, sizeof(ot_bq_state));
         memset(&eq->state[1][b], 0, sizeof(ot_bq_state));
     }
-    /* Removed trailing sections crossfade to dry instead of popping out. */
-    for (uint32_t b = count; b < eq->count; b++) {
-        if (!is_identity(&eq->cur[b])) {
-            fade_out(eq->cur[b], &eq->state[0][b], l, n);
-            fade_out(eq->cur[b], &eq->state[1][b], r, n);
-        }
-        eq->cur[b] = id;
-        memset(&eq->state[0][b], 0, sizeof(ot_bq_state));
-        memset(&eq->state[1][b], 0, sizeof(ot_bq_state));
-    }
-    eq->count = count;
     for (uint32_t b = 0; b < count; b++) {
         ot_biquad_coeffs target = p->bands[b];
         bool settled = memcmp(&eq->cur[b], &target, sizeof(target)) == 0;
@@ -107,5 +97,16 @@ void ot_eq_process(ot_eq *eq, const ot_params *p, float *l, float *r, uint32_t n
             eq->cur[b] = target;
         }
     }
+    /* Removed trailing sections crossfade to dry after retained sections to keep cascade order intact. */
+    for (uint32_t b = count; b < prev_count; b++) {
+        if (!is_identity(&eq->cur[b])) {
+            fade_out(eq->cur[b], &eq->state[0][b], l, n);
+            fade_out(eq->cur[b], &eq->state[1][b], r, n);
+        }
+        eq->cur[b] = id;
+        memset(&eq->state[0][b], 0, sizeof(ot_bq_state));
+        memset(&eq->state[1][b], 0, sizeof(ot_bq_state));
+    }
+    eq->count = count;
     eq->primed = true;
 }

@@ -3,6 +3,17 @@ import AVFoundation
 import Observation
 import OvertoneDSP
 
+/// An installable Audio Unit effect found on this Mac.
+struct PluginComponent: Identifiable, Hashable {
+    let type: UInt32
+    let subType: UInt32
+    let manufacturer: UInt32
+    let name: String
+    let manufacturerName: String
+
+    var id: String { "\(type)-\(subType)-\(manufacturer)" }
+}
+
 /// One Audio Unit effect instance inserted into Overtone's processing chain.
 @MainActor @Observable
 final class HostedPlugin: Identifiable {

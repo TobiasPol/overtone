@@ -73,9 +73,8 @@ static ot_plugin_chain *acquire_chain(ot_dsp *dsp) {
 }
 
 static void copy_output(float *dst, const AudioBuffer *buf, UInt32 bytes) {
-    if (buf->mData == dst) return;
     UInt32 copy = buf->mDataByteSize < bytes ? buf->mDataByteSize : bytes;
-    if (copy > 0) memcpy(dst, buf->mData, copy);
+    if (buf->mData != dst && copy > 0) memmove(dst, buf->mData, copy);
     if (copy < bytes) memset((uint8_t *)dst + copy, 0, bytes - copy);
 }
 

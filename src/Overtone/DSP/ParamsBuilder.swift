@@ -32,23 +32,24 @@ enum ParamsBuilder {
         return p
     }
 
+    private static func slotItems(_ s: DSPSettings) -> [(band: EQBand, live: Bool)] {
+        let correction = s.correction.filters.map { (band: $0, live: s.correction.isEnabled) }
+        let equalizer = s.equalizer.activeBands.map { (band: $0, live: s.equalizer.isEnabled) }
+        return Array((correction + equalizer).prefix(Int(OT_MAX_BANDS)))
+    }
+
     /// Fixed filter slots: every correction filter, then every band of the active EQ mode.
     /// Silent or disabled bands become identity sections (skipped by the DSP) instead of being
     /// removed, so the other bands keep their slot and filter state when one crosses 0 dB.
     static func sections(_ s: DSPSettings, sampleRate: Double) -> [ot_biquad_coeffs] {
-        let correction = s.correction.filters.map { (band: $0, live: s.correction.isEnabled) }
-        let equalizer = s.equalizer.activeBands.map { (band: $0, live: s.equalizer.isEnabled) }
-        return (correction + equalizer).prefix(Int(OT_MAX_BANDS)).map { item in
+        slotItems(s).map { item in
             item.live && !item.band.isNeutral ? item.band.coefficients(sampleRate: sampleRate) : ot_biquad_identity()
         }
     }
 
     /// Bands that actually shape the sound (for curves, auto-gain and export).
     static func activeBands(_ s: DSPSettings) -> [EQBand] {
-        var bands: [EQBand] = []
-        if s.correction.isActive { bands += s.correction.filters }
-        if s.equalizer.isEnabled { bands += s.equalizer.activeBands }
-        return bands.prefix(Int(OT_MAX_BANDS)).filter { !$0.isNeutral }
+        slotItems(s).compactMap { $0.live && !$0.band.isNeutral ? $0.band : nil }
     }
 
     static func preampDB(_ s: DSPSettings, bands: [EQBand], sampleRate: Double = ResponseCurve.displaySampleRate) -> Double {

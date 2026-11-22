@@ -15,6 +15,7 @@ extension AppController {
     /// Downloads an AutoEQ profile and makes it the active headphone correction.
     func applyAutoEQ(_ entry: AutoEQEntry) async throws {
         let profile = try await autoEQ.fetchProfile(entry)
+        try Task.checkCancellation()
         state.correction = HeadphoneCorrection(
             isEnabled: true, profileName: entry.name, source: entry.detail,
             preamp: profile.preamp, filters: profile.bands

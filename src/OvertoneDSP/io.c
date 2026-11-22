@@ -41,13 +41,15 @@ static uint32_t buffer_frames(const AudioBuffer *b) {
 
 static uint32_t output_frames(const AudioBufferList *out) {
     if (out == NULL) return 0;
+    uint32_t max_frames = 0;
     for (uint32_t b = 0; b < out->mNumberBuffers; b++) {
         const AudioBuffer *buf = &out->mBuffers[b];
         if (buf->mData != NULL && buf->mNumberChannels > 0) {
-            return buffer_frames(buf);
+            uint32_t frames = buffer_frames(buf);
+            if (frames > max_frames) max_frames = frames;
         }
     }
-    return 0;
+    return max_frames;
 }
 
 /* Source channels inside one tap buffer: the configured pair when the buffer has it,

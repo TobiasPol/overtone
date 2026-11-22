@@ -243,4 +243,33 @@ struct EQSlotContinuityTests {
         #expect(steps[4_500..<5_200].max()! < steady * 2.5)
         #expect(steps[10_100..<10_800].max()! < steady * 2.5)
     }
+
+    /// Removing a trailing band while keeping an earlier band must fade out after retained bands cleanly.
+    @Test func removingTrailingBandPreservesEarlierBandCascadeSmoothness() {
+        let dsp = ot_dsp_create()!
+        defer { ot_dsp_destroy(dsp) }
+        var signal = (0..<14_400).map { 0.3 * Float(sin(2 * .pi * 120 * Double($0) / 48_000)) }
+        var right = signal
+        var p = ot_params()
+        ot_params_init(&p, 48_000)
+        p.band_count = 2
+        ot_params_set_band(&p, 0, ot_biquad_design(OT_FILTER_LOW_SHELF, 48_000, 150, 6, 0.7))
+        ot_params_set_band(&p, 1, ot_biquad_design(OT_FILTER_PEAK, 48_000, 120, 6, 1.0))
+        ot_dsp_publish(dsp, &p)
+        for start in stride(from: 0, to: signal.count, by: 512) {
+            if start == 7_680 {
+                p.band_count = 1
+                ot_dsp_publish(dsp, &p)
+            }
+            let n = min(512, signal.count - start)
+            signal.withUnsafeMutableBufferPointer { l in
+                right.withUnsafeMutableBufferPointer { r in
+                    ot_dsp_process(dsp, l.baseAddress! + start, r.baseAddress! + start, UInt32(n))
+                }
+            }
+        }
+        let steps = zip(signal.dropFirst(), signal).map { abs($0 - $1) }
+        let steady = steps[2_000..<7_000].max()!
+        #expect(steps[7_500..<8_300].max()! < steady * 1.5)
+    }
 }
